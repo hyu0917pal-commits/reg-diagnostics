@@ -1,0 +1,2634 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>回帰診断ダッシュボード</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: #0a0f1e;
+  color: #e2e8f0;
+  min-height: 100vh;
+}
+header {
+  background: #111827;
+  border-bottom: 1px solid #1f2937;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 52px;
+  flex-shrink: 0;
+}
+header h1 { font-size: 1.05rem; font-weight: 700; color: #38bdf8; letter-spacing: -0.01em; }
+header span { font-size: 0.75rem; color: #4b5563; }
+header .header-spacer { flex: 1; }
+
+/* サイドバー折りたたみトグル */
+#sidebar-toggle {
+  background: none;
+  border: 1px solid #1f2937;
+  border-radius: 6px;
+  color: #6b7280;
+  font-size: 1rem;
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+#sidebar-toggle:hover { border-color: #38bdf8; color: #38bdf8; }
+
+.layout {
+  display: flex;
+  height: calc(100vh - 52px);
+  overflow: hidden;
+}
+
+/* SIDEBAR */
+.sidebar {
+  width: 300px;
+  min-width: 300px;
+  background: #111827;
+  border-right: 1px solid #1f2937;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  transition: width 0.25s ease, min-width 0.25s ease, opacity 0.2s ease;
+}
+.sidebar.collapsed {
+  width: 0;
+  min-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  border-right: none;
+}
+.sidebar-section {
+  padding: 14px 16px;
+  border-bottom: 1px solid #1f2937;
+}
+.sidebar-section h2 { font-size: 0.68rem; color: #4b5563; text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 10px; font-weight: 700; }
+label { font-size: 0.8rem; color: #9ca3af; display: block; margin-bottom: 4px; margin-top: 10px; }
+label:first-of-type { margin-top: 0; }
+select, textarea {
+  width: 100%;
+  background: #0a0f1e;
+  border: 1px solid #1f2937;
+  border-radius: 7px;
+  color: #e2e8f0;
+  font-size: 0.8rem;
+  padding: 7px 10px;
+  transition: border-color 0.15s;
+}
+select { height: 32px; }
+textarea { resize: vertical; font-family: 'Courier New', monospace; font-size: 0.74rem; }
+textarea:focus, select:focus { outline: none; border-color: #38bdf8; box-shadow: 0 0 0 2px rgba(56,189,248,0.1); }
+
+.var-row { display: flex; gap: 8px; }
+.var-row select { flex: 1; }
+
+#run-btn {
+  margin: 14px 16px;
+  width: calc(100% - 32px);
+  padding: 11px;
+  border-radius: 8px;
+  border: none;
+  background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+  color: #0a0f1e;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 2px 8px rgba(56,189,248,0.25);
+  letter-spacing: 0.01em;
+}
+#run-btn:hover { background: linear-gradient(135deg, #38bdf8, #7dd3fc); box-shadow: 0 4px 14px rgba(56,189,248,0.4); }
+#run-btn:disabled { background: #1f2937; color: #374151; cursor: default; box-shadow: none; }
+
+.coef-table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
+.coef-table th { color: #4b5563; font-weight: 700; text-align: right; padding: 6px 8px; border-bottom: 1px solid #1f2937; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.coef-table th:first-child { text-align: left; }
+.coef-table td { padding: 6px 8px; text-align: right; border-bottom: 1px solid #111827; transition: background 0.1s; }
+.coef-table tr:hover td { background: #111827; }
+.coef-table td:first-child { text-align: left; color: #93c5fd; font-family: 'Courier New', monospace; font-size: 0.78rem; }
+.sig { color: #34d399; font-weight: 700; }
+.marginal { color: #fbbf24; }
+
+.summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.stat-box { background: #0a0f1e; border-radius: 8px; padding: 10px 12px; border: 1px solid #1f2937; }
+.stat-box .val { font-size: 1.05rem; font-weight: 700; color: #38bdf8; }
+.stat-box .lbl { font-size: 0.65rem; color: #4b5563; margin-top: 3px; }
+
+.msg { font-size: 0.8rem; color: #64748b; padding: 16px; text-align: center; }
+.err { color: #f87171; }
+
+/* MAIN */
+.main-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #0a0f1e;
+}
+.tab-bar {
+  display: flex;
+  background: #111827;
+  border-bottom: 1px solid #1f2937;
+  padding: 0 20px;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.tab-btn {
+  padding: 12px 22px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #4b5563;
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+  letter-spacing: 0.01em;
+}
+.tab-btn:hover { color: #d1d5db; }
+.tab-btn.active { color: #38bdf8; border-bottom-color: #38bdf8; }
+.tab-panel { display: none; flex: 1; overflow-y: auto; }
+.tab-panel.active { display: flex; flex-direction: column; }
+.main {
+  flex: 1;
+  padding: 20px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 16px;
+  align-content: start;
+}
+/* 係数パネル */
+.coef-panel {
+  padding: 24px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  align-content: start;
+}
+.coef-panel-full { grid-column: 1 / -1; }
+.panel-card {
+  background: #111827;
+  border-radius: 12px;
+  padding: 20px;
+  border: 1px solid #1f2937;
+}
+.panel-card h3 {
+  font-size: 0.68rem;
+  color: #4b5563;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  margin-bottom: 14px;
+  font-weight: 700;
+}
+.plot-card {
+  background: #111827;
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #1f2937;
+}
+.plot-card h3 { font-size: 0.8rem; color: #9ca3af; margin-bottom: 4px; }
+.plot-card .plot-sub { font-size: 0.68rem; color: #374151; margin-bottom: 10px; }
+.plot-card canvas { display: block; width: 100%; }
+
+.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #334155;
+  font-size: 0.85rem;
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+  flex-direction: column;
+  gap: 8px;
+}
+.placeholder svg { opacity: 0.3; }
+
+/* chip for outlier labels */
+.outlier-chip {
+  display: inline-block;
+  background: #7f1d1d;
+  color: #fca5a5;
+  font-size: 0.65rem;
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-left: 4px;
+}
+.method-btn {
+  flex: 1;
+  padding: 8px 4px;
+  border-radius: 7px;
+  border: 1px solid #1f2937;
+  background: #0a0f1e;
+  color: #6b7280;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.method-btn:hover { border-color: #374151; color: #d1d5db; }
+.method-btn.selected { border-color: #0ea5e9; background: #082f49; color: #38bdf8; box-shadow: 0 0 0 1px rgba(14,165,233,0.2); }
+.fe-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+.fe-badge.fe { background: #1e3a5f; color: #38bdf8; }
+.fe-badge.fd { background: #2d1b69; color: #a78bfa; }
+.var-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 0.79rem;
+  background: #0a0f1e;
+  border: 1px solid #1a2234;
+  transition: border-color 0.12s;
+}
+.var-row:hover { border-color: #2d3f5c; }
+.var-row input[type="radio"]  { accent-color: #f97316; cursor: pointer; flex-shrink:0; }
+.var-row input[type="checkbox"] { accent-color: #38bdf8; cursor: pointer; flex-shrink:0; }
+.var-row .var-label { flex: 1; color: #d1d5db; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.var-row .var-type  { font-size: 0.63rem; color: #374151; flex-shrink:0; }
+.var-row.is-y { border-color: #92400e; background: #160a00; }
+.var-row.is-x { border-color: #0c4a6e; background: #060d1a; }
+/* サブタブ（プロット切替） */
+.sub-tab-bar {
+  display: flex;
+  background: #0f172a;
+  border-bottom: 1px solid #1e293b;
+  padding: 0 12px;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.sub-tab-btn {
+  padding: 8px 14px;
+  font-size: 0.77rem;
+  font-weight: 600;
+  color: #475569;
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.sub-tab-btn:hover { color: #94a3b8; }
+.sub-tab-btn.active { color: #7dd3fc; border-bottom-color: #38bdf8; }
+.plot-panel { display: none; flex: 1; padding: 24px; flex-direction: column; }
+.plot-panel.active { display: flex; }
+.plot-card-full {
+  background: #111827;
+  border-radius: 12px;
+  padding: 24px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #1f2937;
+}
+.plot-card-full h3 { font-size: 0.85rem; color: #9ca3af; margin-bottom: 4px; }
+.plot-card-full .plot-sub { font-size: 0.72rem; color: #374151; margin-bottom: 8px; }
+.plot-legend { display: flex; align-items: center; gap: 16px; font-size: 0.72rem; color: #9ca3af; margin-bottom: 12px; }
+.legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.plot-card-full canvas { flex: 1; width: 100%; display: block; }
+#plot-panels { display: flex; flex-direction: column; flex: 1; overflow-y: auto; }
+.plot-explain {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.plot-explain-block {
+  background: #0f172a;
+  border: 1px solid #1e3a52;
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.plot-explain-block h4 {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #38bdf8;
+  margin-bottom: 7px;
+}
+.plot-explain-block p {
+  font-size: 0.73rem;
+  color: #94a3b8;
+  line-height: 1.6;
+  margin: 0;
+}
+.plot-explain-block .formula {
+  font-family: 'Courier New', monospace;
+  font-size: 0.72rem;
+  color: #7dd3fc;
+  background: #0c1a2e;
+  border-radius: 4px;
+  padding: 4px 8px;
+  margin-top: 6px;
+  display: block;
+}
+.pattern-list { list-style: none; padding: 0; margin: 0; }
+.pattern-list li {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  line-height: 1.5;
+  padding: 3px 0;
+  border-bottom: 1px solid #1e293b;
+  display: flex;
+  gap: 6px;
+}
+.pattern-list li:last-child { border-bottom: none; }
+.pattern-list li .pat-icon { flex-shrink: 0; font-size: 0.8rem; }
+.plot-explain-full {
+  background: #0f172a;
+  border: 1px solid #1e3a52;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-top: 10px;
+}
+.plot-explain-full h4 {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #38bdf8;
+  margin-bottom: 7px;
+}
+.plot-explain-full p {
+  font-size: 0.73rem;
+  color: #94a3b8;
+  line-height: 1.6;
+  margin: 0;
+}
+#plot-tabs-wrapper { display: none; flex-direction: column; flex: 1; }
+#plot-tabs-wrapper.visible { display: flex; }
+.dl-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 0 10px 0;
+  flex-shrink: 0;
+}
+.dl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 13px;
+  border-radius: 6px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1.5px solid #334155;
+  background: #1e293b;
+  color: #94a3b8;
+  transition: all 0.15s;
+}
+.dl-btn:hover { background: #0f172a; border-color: #38bdf8; color: #7dd3fc; }
+.dl-btn svg { flex-shrink: 0; }
+.plot-card-full { position: relative; }
+.point-tooltip {
+  position: absolute;
+  display: none;
+  pointer-events: none;
+  background: #0f172a;
+  border: 1px solid #38bdf8;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.72rem;
+  color: #e2e8f0;
+  line-height: 1.5;
+  white-space: nowrap;
+  z-index: 20;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+}
+.point-tooltip b { color: #7dd3fc; }
+.group-effects-table { width:100%; border-collapse:collapse; font-size:0.72rem; margin-top:6px; }
+.group-effects-table th { color:#64748b; text-align:right; padding:3px 5px; border-bottom:1px solid #334155; }
+.group-effects-table th:first-child { text-align:left; }
+.group-effects-table td { padding:3px 5px; text-align:right; border-bottom:1px solid #1e293b; }
+.group-effects-table td:first-child { text-align:left; color:#93c5fd; font-family:monospace; }
+.zinb-section { margin-top:16px; padding-top:12px; border-top:1px solid #334155; }
+.zinb-section h3 { font-size:0.78rem; color:#94a3b8; margin-bottom:8px; }
+.year-filter-row { display:flex; gap:8px; align-items:center; margin-top:6px; }
+.year-filter-row input[type="number"] { width:70px; background:#0f172a; border:1px solid #334155; border-radius:5px; color:#e2e8f0; font-size:0.8rem; padding:4px 6px; }
+.year-filter-row input[type="range"] { flex:1; accent-color:#38bdf8; }
+</style>
+</head>
+<body>
+<header>
+  <button id="sidebar-toggle" onclick="toggleSidebar()" title="サイドバーを開閉">☰</button>
+  <h1>📉 回帰診断ダッシュボード</h1>
+  <span>OLS · FE · NB · ブラウザのみで動作</span>
+</header>
+
+<div class="layout">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sidebar-section">
+      <h2 style="display:flex;align-items:center;justify-content:space-between;">
+        データ入力
+        <button onclick="toggleDataInput()" id="data-toggle-btn" style="font-size:0.7rem;padding:2px 8px;border-radius:4px;border:1px solid #334155;background:#0f172a;color:#94a3b8;cursor:pointer;">非表示</button>
+      </h2>
+      <div id="data-input-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;">
+        <button onclick="loadExample('mtcars')" style="padding:6px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#94a3b8;font-size:0.75rem;cursor:pointer;">mtcars風</button>
+        <button onclick="loadExample('wage')" style="padding:6px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#94a3b8;font-size:0.75rem;cursor:pointer;">賃金データ</button>
+        <button onclick="loadExample('hetero')" style="padding:6px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#94a3b8;font-size:0.75rem;cursor:pointer;">異分散</button>
+        <button onclick="loadPanel()" style="padding:6px;border-radius:6px;border:1px solid #1e3a5f;background:#0c2a45;color:#38bdf8;font-size:0.75rem;cursor:pointer;font-weight:600;">📊 パネル(FE用)</button>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;">
+        <label style="margin:0;">CSV貼り付け（1行目ヘッダー）</label>
+        <button onclick="clearCSV()" style="font-size:0.7rem;padding:2px 8px;border-radius:4px;border:1px solid #334155;background:#0f172a;color:#f87171;cursor:pointer;">クリア</button>
+      </div>
+      <div id="drop-zone" style="margin-top:4px;position:relative;border-radius:6px;">
+        <textarea id="csv-input" rows="8" placeholder="y,x1,x2&#10;3.2,1.1,0.5&#10;4.5,2.3,1.2&#10;CSVファイルをここにドロップ..." style="width:100%;"></textarea>
+        <!-- ドラッグ中だけ pointer-events:auto にして textarea の前に drop を捕捉 -->
+        <div id="drop-overlay" style="display:none;position:absolute;inset:0;border-radius:6px;border:2px dashed #38bdf8;background:rgba(12,74,110,0.85);align-items:center;justify-content:center;font-size:0.85rem;color:#38bdf8;font-weight:600;cursor:copy;">
+          ファイルをドロップ
+        </div>
+      </div>
+      <input type="file" id="file-input" accept=".csv,.tsv,.txt" style="display:none;" onchange="loadFromFileInput(this)">
+      <button onclick="document.getElementById('file-input').click()" style="margin-top:6px;width:100%;padding:6px;border-radius:6px;border:1px dashed #334155;background:#0f172a;color:#64748b;font-size:0.75rem;cursor:pointer;">📂 ファイルを選択して開く</button>
+      <label>区切り文字</label>
+      <select id="delim">
+        <option value=",">カンマ (,)</option>
+        <option value="	">タブ</option>
+        <option value=" ">スペース</option>
+      </select>
+      </div><!-- /data-input-body -->
+    </div>
+
+    <div class="sidebar-section">
+      <h2>モデル設定</h2>
+      <div style="font-size:0.72rem;color:#64748b;margin-bottom:6px;">目的変数 Y（ラジオ）・説明変数 X（チェック）</div>
+      <div id="var-checkboxes" style="max-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;">
+        <div style="color:#475569;font-size:0.75rem;padding:8px 0;">— データを読み込んでください —</div>
+      </div>
+      <label style="margin-top:10px;">
+        <input type="checkbox" id="intercept" checked style="margin-right:6px;">切片を含む (OLS のみ)
+      </label>
+    </div>
+
+    <div class="sidebar-section">
+      <h2>推定方法</h2>
+      <div style="display:flex;gap:6px;">
+        <button class="method-btn selected" data-method="ols" onclick="selectMethod('ols')">OLS</button>
+        <button class="method-btn" data-method="fe" onclick="selectMethod('fe')">固定効果 (FE)</button>
+        <button class="method-btn" data-method="fd" onclick="selectMethod('fd')">一階差分 (FD)</button>
+        <button class="method-btn" data-method="nb" onclick="selectMethod('nb')">NB</button>
+      </div>
+      <div id="fe-options" style="display:none;margin-top:10px;">
+        <label>個体変数（Entity ID）</label>
+        <select id="group-var"><option>— データを読み込んでください —</option></select>
+        <label style="margin-top:8px;">
+          <input type="checkbox" id="twfe" style="margin-right:6px;">双方向固定効果（TWFE）
+        </label>
+        <div id="twfe-time-row" style="display:none;margin-top:6px;">
+          <label>時間変数（Period）</label>
+          <select id="time-var-fe"><option>— データを読み込んでください —</option></select>
+        </div>
+        <label style="margin-top:8px;">
+          <input type="checkbox" id="cluster-se" checked style="margin-right:6px;">クラスター標準誤差（個体単位）
+        </label>
+        <div style="margin-top:8px;font-size:0.72rem;color:#64748b;line-height:1.6;">
+          一方向FE：個体固定効果のみ除去<br>
+          TWFE：個体 + 時間固定効果を同時除去
+        </div>
+      </div>
+      <div id="fd-options" style="display:none;margin-top:10px;">
+        <label>グループ変数（個体ID）</label>
+        <select id="group-var-fd"><option>— データを読み込んでください —</option></select>
+        <label style="margin-top:6px;">時間変数（ソート用）</label>
+        <select id="time-var-fd"><option>— データを読み込んでください —</option></select>
+        <div style="margin-top:8px;font-size:0.75rem;color:#64748b;line-height:1.5;">
+          前期との差分で推定。FEと一致するがT=2のとき効率的。
+        </div>
+      </div>
+      <div id="nb-options" style="display:none;margin-top:10px;">
+        <label>個体変数（Entity ID）</label>
+        <select id="group-var-nb"><option>— データを読み込んでください —</option></select>
+        <label style="margin-top:8px;">時間変数（Period）</label>
+        <select id="time-var-nb"><option>— データを読み込んでください —</option></select>
+        <label style="margin-top:8px;">
+          <input type="checkbox" id="zinb-check" style="margin-right:6px;">ZINB（ゼロ過剰）も推定
+        </label>
+        <div style="margin-top:8px;font-size:0.72rem;color:#64748b;line-height:1.6;">
+          NB GLM：カウントデータの過分散モデル（対数リンク）<br>
+          ZINB：構造的ゼロが多い場合に有効。EM法で推定。<br>
+          個体ダミー＋時間ダミーを自動追加（TWFE相当）
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-section" id="year-filter-section" style="display:none;">
+      <h2>サンプル期間</h2>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px;">
+        <input type="number" id="year-min-input" style="width:72px;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#e2e8f0;font-size:0.8rem;padding:4px 6px;">
+        <span style="color:#64748b;font-size:0.8rem;">〜</span>
+        <input type="number" id="year-max-input" style="width:72px;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#e2e8f0;font-size:0.8rem;padding:4px 6px;">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;">
+        <input type="range" id="year-min-slider" style="width:100%;accent-color:#38bdf8;">
+        <input type="range" id="year-max-slider" style="width:100%;accent-color:#38bdf8;">
+      </div>
+    </div>
+
+    <button id="run-btn" onclick="handleRun()" disabled>回帰を実行</button>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main-wrapper">
+    <div class="tab-bar">
+      <button class="tab-btn active" onclick="switchTab('coef')">📋 係数・要約</button>
+      <button class="tab-btn" onclick="switchTab('plots')">📉 診断プロット</button>
+    </div>
+
+    <!-- 係数タブ -->
+    <div class="tab-panel active" id="tab-coef">
+      <div id="coef-placeholder" style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;color:#334155;font-size:0.85rem;">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="1.5" style="opacity:0.3;"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h4"/></svg>
+        <span>回帰を実行すると係数が表示されます</span>
+      </div>
+      <div class="coef-panel" id="coef-panel" style="display:none;">
+        <div class="dl-bar">
+          <button class="dl-btn" onclick="downloadCoefCSV()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            CSV 保存
+          </button>
+        </div>
+        <div class="panel-card coef-panel-full" id="coef-section">
+          <h3 id="coef-title">係数推定</h3>
+          <table class="coef-table" id="coef-table"></table>
+        </div>
+        <div class="panel-card" id="summary-section">
+          <h3>モデル要約</h3>
+          <div class="summary-grid" id="summary-grid"></div>
+        </div>
+        <div class="panel-card" id="diag-section">
+          <h3>診断メモ</h3>
+          <div id="diag-notes" style="font-size:0.82rem;line-height:1.8;color:#94a3b8;"></div>
+        </div>
+        <div class="panel-card coef-panel-full" id="fe-group-section" style="display:none;">
+          <h3>グループ固定効果 α̂ᵢ</h3>
+          <div style="max-height:220px;overflow-y:auto;">
+            <table class="group-effects-table" id="group-effects-table"></table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 診断プロットタブ -->
+    <div class="tab-panel" id="tab-plots">
+      <div id="plot-placeholder" style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;color:#334155;font-size:0.85rem;">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="1.5" style="opacity:0.3;"><path d="M3 3v18h18"/><path d="m7 16 4-4 4 4 4-4"/></svg>
+        <span>回帰を実行すると診断プロットが表示されます</span>
+      </div>
+      <div id="plot-tabs-wrapper">
+        <div class="sub-tab-bar">
+          <button class="sub-tab-btn active" onclick="switchPlot(0)">① 残差 vs 当てはめ値</button>
+          <button class="sub-tab-btn" onclick="switchPlot(1)">② 正規 Q-Q</button>
+          <button class="sub-tab-btn" onclick="switchPlot(2)">③ Scale-Location</button>
+          <button class="sub-tab-btn" onclick="switchPlot(3)">④ 残差 vs レバレッジ</button>
+        </div>
+        <div id="plot-panels" style="flex:1;position:relative;">
+          <!-- ① 残差 vs 当てはめ値 -->
+          <div class="plot-panel active" id="pp0">
+            <div class="dl-bar"><button class="dl-btn" onclick="downloadPlot('c1','残差vs当てはめ値')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>PNG 保存</button></div>
+            <div class="plot-card-full">
+              <h3>① 残差 vs 当てはめ値　<span style="font-weight:400;color:#475569;font-size:0.75rem;">Residuals vs Fitted</span></h3>
+              <div class="plot-sub">縦軸：残差 ê = y − ŷ　／　横軸：当てはめ値 ŷ　／　赤線：LOESSスムーザー</div>
+              <div class="plot-legend"><span class="legend-dot" style="background:#3b82f6;"></span>通常の観測値　<span class="legend-dot" style="background:#ef4444;"></span>外れ値（|標準化残差| &gt; 2）</div>
+              <canvas id="c1"></canvas>
+              <div class="point-tooltip" id="tip-c1"></div>
+            </div>
+            <div class="plot-explain">
+              <div class="plot-explain-block">
+                <h4>何を見るプロット？</h4>
+                <p>OLSの2つの主要な仮定——<strong>線形性</strong>と<strong>均一分散（等分散性）</strong>——を視覚的に確認するプロットです。残差が当てはめ値に対してランダムに散らばっていれば、モデルは正しく機能しています。</p>
+                <span class="formula">ê_i = y_i − ŷ_i = y_i − Xβ̂</span>
+              </div>
+              <div class="plot-explain-block">
+                <h4>読み方のポイント</h4>
+                <ul class="pattern-list">
+                  <li><span class="pat-icon">✅</span> LOESSが水平でゼロ付近 → 線形性・等分散ともに問題なし</li>
+                  <li><span class="pat-icon">⚠️</span> U字・逆U字カーブ → 非線形な関係が未考慮（二乗項の追加を検討）</li>
+                  <li><span class="pat-icon">⚠️</span> ラッパ型（ŷが大きくなるほど散らばりが拡大）→ 不均一分散。対数変換・WLSを検討</li>
+                  <li><span class="pat-icon">🔴</span> 赤点（|標準化残差| &gt; 2）→ 外れ値候補。除外前に記録の確認を</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <!-- ② 正規 Q-Q -->
+          <div class="plot-panel" id="pp1">
+            <div class="dl-bar"><button class="dl-btn" onclick="downloadPlot('c2','正規QQ')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>PNG 保存</button></div>
+            <div class="plot-card-full">
+              <h3>② 正規 Q-Q プロット　<span style="font-weight:400;color:#475569;font-size:0.75rem;">Normal Q-Q</span></h3>
+              <div class="plot-sub">縦軸：標準化残差の順位統計量　／　横軸：標準正規分布の理論分位数　／　破線：IQRベース参照線</div>
+              <div class="plot-legend"><span class="legend-dot" style="background:#3b82f6;"></span>通常の観測値　<span class="legend-dot" style="background:#ef4444;"></span>外れ値（|標準化残差| &gt; 2）</div>
+              <canvas id="c2"></canvas>
+              <div class="point-tooltip" id="tip-c2"></div>
+            </div>
+            <div class="plot-explain">
+              <div class="plot-explain-block">
+                <h4>何を見るプロット？</h4>
+                <p>残差が<strong>正規分布</strong>に従っているかを確認します。横軸に標準正規分布の理論分位数 Φ⁻¹((i−0.5)/n)、縦軸に標準化残差の順位値を取り、完全な正規性なら全点が直線上に並びます。</p>
+                <span class="formula">標準化残差 r_i = ê_i / (s√(1 − h_ii))</span>
+              </div>
+              <div class="plot-explain-block">
+                <h4>読み方のポイント</h4>
+                <ul class="pattern-list">
+                  <li><span class="pat-icon">✅</span> 全点が破線（参照線）に沿う → 正規性の仮定を満たす</li>
+                  <li><span class="pat-icon">⚠️</span> 両端が外側に反る（S字）→ 裾が重い分布（heavy tail）。t分布誤差モデルを検討</li>
+                  <li><span class="pat-icon">⚠️</span> 両端が内側に曲がる → 裾が軽い分布（uniform-like）</li>
+                  <li><span class="pat-icon">⚠️</span> 右上/左下だけ外れる → 歪み（skewness）あり。対数・Box-Cox変換を検討</li>
+                  <li><span class="pat-icon">💡</span> n が大きい場合、CLTにより正規性の違反は推定への影響が小さくなります</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <!-- ③ Scale-Location -->
+          <div class="plot-panel" id="pp2">
+            <div class="dl-bar"><button class="dl-btn" onclick="downloadPlot('c3','Scale-Location')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>PNG 保存</button></div>
+            <div class="plot-card-full">
+              <h3>③ Scale-Location　<span style="font-weight:400;color:#475569;font-size:0.75rem;">Spread-Location</span></h3>
+              <div class="plot-sub">縦軸：√|標準化残差|　／　横軸：当てはめ値 ŷ　／　赤線：LOESSスムーザー</div>
+              <div class="plot-legend"><span class="legend-dot" style="background:#3b82f6;"></span>通常の観測値　<span class="legend-dot" style="background:#ef4444;"></span>外れ値（|標準化残差| &gt; 2）</div>
+              <canvas id="c3"></canvas>
+              <div class="point-tooltip" id="tip-c3"></div>
+            </div>
+            <div class="plot-explain">
+              <div class="plot-explain-block">
+                <h4>何を見るプロット？</h4>
+                <p>①のプロットと同じく<strong>等分散性</strong>を確認しますが、こちらは残差の<em>大きさ</em>（絶対値の平方根）を縦軸に取ることで、分散の変化をより検出しやすくしています。LOESSが水平かつ平坦であれば等分散。</p>
+                <span class="formula">縦軸 = √|r_i|　（r_i は標準化残差）</span>
+              </div>
+              <div class="plot-explain-block">
+                <h4>読み方のポイント</h4>
+                <ul class="pattern-list">
+                  <li><span class="pat-icon">✅</span> LOESSが水平 → 等分散性を満たす（Homoscedasticity）</li>
+                  <li><span class="pat-icon">⚠️</span> 右上がり → ŷが大きいほど分散が大きい（異分散）</li>
+                  <li><span class="pat-icon">⚠️</span> 右下がり → ŷが大きいほど分散が小さい（稀だが検出重要）</li>
+                  <li><span class="pat-icon">🔧</span> 対処：対数・逆数変換、WLS、HC標準誤差（不均一分散ロバストSE）</li>
+                  <li><span class="pat-icon">💡</span> Breusch-Pagan検定・White検定でも統計的に確認できます</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <!-- ④ 残差 vs レバレッジ -->
+          <div class="plot-panel" id="pp3">
+            <div class="dl-bar"><button class="dl-btn" onclick="downloadPlot('c4','残差vsレバレッジ')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>PNG 保存</button></div>
+            <div class="plot-card-full">
+              <h3>④ 残差 vs レバレッジ　<span style="font-weight:400;color:#475569;font-size:0.75rem;">Residuals vs Leverage</span></h3>
+              <div class="plot-sub">縦軸：標準化残差　／　横軸：レバレッジ h_ii　／　等高線：Cook's D　／　紫線：高レバレッジ閾値 2k/n</div>
+              <div class="plot-legend"><span class="legend-dot" style="background:#3b82f6;"></span>通常の観測値　<span class="legend-dot" style="background:#ef4444;"></span>影響点（Cook's D &gt; 4/n）</div>
+              <canvas id="c4"></canvas>
+              <div class="point-tooltip" id="tip-c4"></div>
+            </div>
+            <div class="plot-explain">
+              <div class="plot-explain-block">
+                <h4>何を見るプロット？</h4>
+                <p><strong>影響点（influential observations）</strong>を特定するプロットです。レバレッジは観測値がX空間でどれだけ外れているかを、Cook's Dは推定値β̂全体への影響度を表します。</p>
+                <span class="formula">h_ii = X_i(X'X)⁻¹X_i'　（ハット行列の対角要素）</span>
+                <span class="formula">D_i = r_i² · h_ii / (k(1−h_ii))　（Cook's D）</span>
+              </div>
+              <div class="plot-explain-block">
+                <h4>読み方のポイント</h4>
+                <ul class="pattern-list">
+                  <li><span class="pat-icon">✅</span> 全点がCook's D=0.5の等高線の内側 → 影響点なし</li>
+                  <li><span class="pat-icon">⚠️</span> 紫破線（2k/n）右側 → 高レバレッジ点。X値が他と大きく異なる</li>
+                  <li><span class="pat-icon">⚠️</span> |標準化残差| &gt; 2 かつ高レバレッジ → 特に危険な影響点</li>
+                  <li><span class="pat-icon">🔴</span> Cook's D &gt; 1（赤等高線外）→ その観測値を除外すると推定値が大きく変わる</li>
+                  <li><span class="pat-icon">💡</span> 影響点は除外ではなく原因調査が先。測定誤差か真の外れ値かを確認</li>
+                </ul>
+              </div>
+            </div>
+            <div class="plot-explain-full">
+              <h4>レバレッジ・Cook's D・外れ値の違い</h4>
+              <p>
+                <strong style="color:#7dd3fc;">外れ値（Outlier）</strong>：Y方向の外れ（|標準化残差| が大きい）。回帰直線から大きく離れた点。<br>
+                <strong style="color:#a78bfa;">高レバレッジ点（High Leverage）</strong>：X方向の外れ（h_ii &gt; 2k/n）。X空間で孤立した点。残差は小さくても「引っ張り」が強い。<br>
+                <strong style="color:#f97316;">影響点（Influential Point）</strong>：両者が重なる点（Cook's D が大きい）。この点を除くと推定値が大きく変わる。最も注意が必要。
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- 後方互換のため空divを残す -->
+      <div id="main" style="display:none;"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── MATRIX UTILS ──────────────────────────────────────────────────────────
+function matMul(A, B) {
+  const m = A.length, n = B[0].length, k = B.length;
+  const C = Array.from({length:m}, () => new Array(n).fill(0));
+  for (let i=0;i<m;i++) for (let j=0;j<n;j++) for (let l=0;l<k;l++) C[i][j]+=A[i][l]*B[l][j];
+  return C;
+}
+function matT(A) {
+  return A[0].map((_,j) => A.map(r => r[j]));
+}
+function matInv(M) {
+  const n = M.length;
+  const A = M.map(r => [...r]);
+  const I = Array.from({length:n}, (_,i) => Array.from({length:n}, (_,j) => i===j?1:0));
+  for (let col=0;col<n;col++) {
+    let maxRow=col;
+    for (let r=col+1;r<n;r++) if (Math.abs(A[r][col])>Math.abs(A[maxRow][col])) maxRow=r;
+    [A[col],A[maxRow]]=[A[maxRow],A[col]];
+    [I[col],I[maxRow]]=[I[maxRow],I[col]];
+    const piv = A[col][col];
+    if (Math.abs(piv)<1e-12) throw new Error('行列が特異です（多重共線性の可能性）');
+    for (let j=0;j<n;j++) { A[col][j]/=piv; I[col][j]/=piv; }
+    for (let r=0;r<n;r++) {
+      if (r===col) continue;
+      const f=A[r][col];
+      for (let j=0;j<n;j++) { A[r][j]-=f*A[col][j]; I[r][j]-=f*I[col][j]; }
+    }
+  }
+  return I;
+}
+
+// ── OLS ───────────────────────────────────────────────────────────────────
+function ols(Y, X) {
+  const n = Y.length, k = X[0].length;
+  const Xt = matT(X);
+  const XtX = matMul(Xt, X);
+  const XtXinv = matInv(XtX);
+  const Xty = matMul(Xt, Y.map(y=>[y]));
+  const beta = matMul(XtXinv, Xty).map(r=>r[0]);
+  const yhat = X.map(row => row.reduce((s,x,j)=>s+x*beta[j],0));
+  const resid = Y.map((y,i)=>y-yhat[i]);
+  const rss = resid.reduce((s,e)=>s+e*e,0);
+  const df = n - k;
+  const s2 = rss / df;
+  const s = Math.sqrt(s2);
+  // hat values (leverage)
+  const H_diag = X.map(row => {
+    const r = [row];
+    return matMul(matMul(r, XtXinv), matT(r))[0][0];
+  });
+  // standardized residuals
+  const stdResid = resid.map((e,i) => e / (s * Math.sqrt(Math.max(1-H_diag[i], 1e-10))));
+  // Cook's D
+  const cookD = resid.map((e,i) => {
+    const h = H_diag[i];
+    return (e*e * h) / (k * s2 * Math.pow(1-h, 2) + 1e-12);
+  });
+  // SE of beta
+  const varBeta = XtXinv.map((row,i) => row[i] * s2);
+  const seBeta = varBeta.map(v => Math.sqrt(Math.max(v,0)));
+  const tStat = beta.map((b,i) => b / (seBeta[i]+1e-12));
+  // p-value from t-dist (approx via normalCDF for large df, else beta-based)
+  const pVal = tStat.map(t => 2*(1 - normalCDF(Math.abs(t))));
+  // R²
+  const yMean = Y.reduce((s,y)=>s+y,0)/n;
+  const tss = Y.reduce((s,y)=>s+(y-yMean)**2,0);
+  const r2 = 1 - rss/tss;
+  const r2adj = 1 - (1-r2)*(n-1)/df;
+  const fStat = (r2/(k-1)) / ((1-r2)/df);
+  const fPval = 1 - fCDF(fStat, k-1, df);
+  return { beta, seBeta, tStat, pVal, yhat, resid, stdResid, H_diag, cookD, rss, s, s2, df, n, k, r2, r2adj, fStat, fPval };
+}
+
+// Normal CDF approximation (Abramowitz & Stegun)
+function normalCDF(x) {
+  const t = 1/(1+0.2316419*Math.abs(x));
+  const poly = t*(0.319381530+t*(-0.356563782+t*(1.781477937+t*(-1.821255978+t*1.330274429))));
+  const p = 1 - (1/Math.sqrt(2*Math.PI))*Math.exp(-x*x/2)*poly;
+  return x>=0 ? p : 1-p;
+}
+function normalQuantile(p) {
+  // Beasley-Springer-Moro approximation
+  const a=[2.50662823884,-18.61500062529,41.39119773534,-25.44106049637];
+  const b=[-8.47351093090,23.08336743743,-21.06224101826,3.13082909833];
+  const c=[0.3374754822726147,0.9761690190917186,0.1607979714918209,0.0276438810333863,
+           0.0038405729373609,0.0003951896511349,0.0000321767881768,0.0000002888167364,0.0000003960315187];
+  let y=p-0.5;
+  if(Math.abs(y)<0.42){const r=y*y;return y*(((a[3]*r+a[2])*r+a[1])*r+a[0])/((((b[3]*r+b[2])*r+b[1])*r+b[0])*r+1);}
+  let r=p<0.5?p:1-p;r=Math.log(-Math.log(r));
+  let s=c[0];for(let i=1;i<9;i++)s+=c[i]*Math.pow(r,i);
+  return p<0.5?-s:s;
+}
+// F-distribution CDF (regularized incomplete beta)
+function fCDF(x, d1, d2) {
+  if (x<=0) return 0;
+  const t = d1*x/(d1*x+d2);
+  return incompleteBeta(t, d1/2, d2/2);
+}
+function incompleteBetaCF(x, a, b) {
+  // Lentz continued fraction for I_x(a,b) — always called with x <= (a+1)/(a+b+2)
+  const lnBeta = lgamma(a)+lgamma(b)-lgamma(a+b);
+  const front = Math.exp(Math.log(x)*a+Math.log(1-x)*b-lnBeta)/a;
+  let f=1,C=1,D=1-((a+b)*x/(a+1));
+  if(Math.abs(D)<1e-30)D=1e-30; D=1/D; f=D;
+  for(let m=1;m<=300;m++){
+    let dN=m*(b-m)*x/((a+2*m-1)*(a+2*m));
+    D=1+dN*D; if(Math.abs(D)<1e-30)D=1e-30; C=1+dN/C; if(Math.abs(C)<1e-30)C=1e-30;
+    D=1/D; f*=D*C;
+    dN=-(a+m)*(a+b+m)*x/((a+2*m)*(a+2*m+1));
+    D=1+dN*D; if(Math.abs(D)<1e-30)D=1e-30; C=1+dN/C; if(Math.abs(C)<1e-30)C=1e-30;
+    D=1/D; const delta=D*C; f*=delta;
+    if(Math.abs(delta-1)<1e-10) break;
+  }
+  return front*f;
+}
+function incompleteBeta(x, a, b) {
+  if (x<0||x>1) return NaN;
+  if (x===0) return 0; if (x===1) return 1;
+  // Use symmetry relation non-recursively to avoid stack overflow
+  if (x < (a+1)/(a+b+2)) return incompleteBetaCF(x, a, b);
+  else return 1 - incompleteBetaCF(1-x, b, a);
+}
+function lgamma(z){
+  const c=[76.18009172947146,-86.50532032941677,24.01409824083091,-1.231739572450155,
+           0.1208650973866179e-2,-0.5395239384953e-5];
+  let x=z,y=z,tmp=x+5.5;
+  tmp=(x+0.5)*Math.log(tmp)-tmp;
+  let ser=1.000000000190015;
+  for(let j=0;j<6;j++){y++;ser+=c[j]/y;}
+  return tmp+Math.log(2.5066282746310005*ser/x);
+}
+
+// ── CSV PARSE ─────────────────────────────────────────────────────────────
+let parsedData = null;
+
+function parseCSV() {
+  const raw = document.getElementById('csv-input').value.trim();
+  if (!raw) return null;
+  const delim = document.getElementById('delim').value;
+  const lines = raw.split(/\r?\n|\r/).filter(l => l.trim());
+  if (lines.length < 2) return null;
+
+  // RFC-4180 準拠の分割（引用符内のカンマを無視）
+  function splitCSVLine(line, sep) {
+    const result = [];
+    let cur = '', inQ = false;
+    for (let ci = 0; ci < line.length; ci++) {
+      const ch = line[ci];
+      if (ch === '"') { inQ = !inQ; }
+      else if (ch === sep && !inQ) { result.push(cur.trim().replace(/^"|"$/g, '')); cur = ''; }
+      else { cur += ch; }
+    }
+    result.push(cur.trim().replace(/^"|"$/g, ''));
+    return result;
+  }
+
+  // 1行目がヘッダーかデータかを判定（いずれかの列が数値でなければヘッダー）
+  const firstCols = splitCSVLine(lines[0], delim);
+  const firstIsHeader = firstCols.some(c => isNaN(parseFloat(c)) || c === '');
+  const headerLine  = firstIsHeader ? 0 : -1; // -1 = ヘッダーなし（自動付番）
+  const headers = firstIsHeader
+    ? firstCols
+    : firstCols.map((_, j) => `V${j + 1}`);
+  const dataStart = firstIsHeader ? 1 : 0;
+
+  // データ行を取り込む（ヘッダー行は含まない）
+  const rawRows = [];
+  for (let i = dataStart; i < lines.length; i++) {
+    const cols = splitCSVLine(lines[i], delim);
+    // 末尾が空欄で列数が1少ない場合も許容
+    if (cols.length === headers.length - 1) cols.push('');
+    if (cols.length !== headers.length) continue;
+    rawRows.push(cols);
+  }
+  if (!rawRows.length) return null;
+
+  // 列ごとに「数値列か文字列列か」を判定（データ行のみで判定）
+  const isNumericCol = headers.map((_, j) =>
+    rawRows.every(r => r[j] === '' || !isNaN(parseFloat(r[j])))
+  );
+
+  const data = {};
+  headers.forEach((h, j) => {
+    data[h] = rawRows.map(r =>
+      isNumericCol[j] ? (r[j] === '' ? NaN : parseFloat(r[j])) : r[j]
+    );
+  });
+
+  // 数値列のみを回帰変数として使える列リストを返す
+  const numericHeaders = headers.filter((_, j) => isNumericCol[j]);
+
+  return { headers, numericHeaders, data, n: rawRows.length };
+}
+
+// ── FILE LOAD (共通) ──────────────────────────────────────────────────────
+function readFileAsText(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    // BOM(﻿)除去・改行正規化
+    document.getElementById('csv-input').value =
+      ev.target.result.replace(/^﻿/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    updateVarSelects();
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+
+function loadFromFileInput(input) {
+  readFileAsText(input.files[0]);
+  input.value = ''; // 同じファイルを再選択できるようリセット
+}
+
+// ── DRAG & DROP ───────────────────────────────────────────────────────────
+(function() {
+  const zone    = document.getElementById('drop-zone');
+  const overlay = document.getElementById('drop-overlay');
+
+  // zone への dragenter でオーバーレイを表示 (pointer-events:auto になり textarea を覆う)
+  zone.addEventListener('dragenter', e => {
+    e.preventDefault();
+    overlay.style.display = 'flex';
+  });
+
+  // オーバーレイ上の dragover で「ドロップ可」を通知
+  overlay.addEventListener('dragover', e => e.preventDefault());
+
+  // オーバーレイから出たら非表示
+  overlay.addEventListener('dragleave', e => {
+    if (!zone.contains(e.relatedTarget)) overlay.style.display = 'none';
+  });
+
+  // オーバーレイ上にドロップ → textarea は関与しないのでそのまま読める
+  overlay.addEventListener('drop', e => {
+    e.preventDefault();
+    overlay.style.display = 'none';
+    readFileAsText(e.dataTransfer.files[0]);
+  });
+})();
+
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach((b, i) =>
+    b.classList.toggle('active', ['coef','plots'][i] === name));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  if (name === 'plots' && window._lastRes) {
+    setTimeout(() => redrawActivePlot(), 50);
+  }
+}
+
+const PLOT_DRAW_FNS = [
+  (res, yVar) => drawResidVsFitted(res, yVar),
+  (res)       => drawQQ(res),
+  (res)       => drawScaleLocation(res),
+  (res)       => drawResidVsLev(res, res.n),
+];
+let _activePlot = 0;
+
+function switchPlot(idx) {
+  _activePlot = idx;
+  document.querySelectorAll('.sub-tab-btn').forEach((b, i) =>
+    b.classList.toggle('active', i === idx));
+  document.querySelectorAll('.plot-panel').forEach((p, i) =>
+    p.classList.toggle('active', i === idx));
+  if (window._lastRes) requestAnimationFrame(() => redrawActivePlot());
+}
+
+function redrawActivePlot() {
+  if (!window._lastRes) return;
+  PLOT_DRAW_FNS[_activePlot](window._lastRes, window._lastYVar);
+}
+
+function clearCSV() {
+  document.getElementById('csv-input').value = '';
+  updateVarSelects();
+}
+
+function toggleDataInput() {
+  const body = document.getElementById('data-input-body');
+  const btn = document.getElementById('data-toggle-btn');
+  const hidden = body.style.display === 'none';
+  body.style.display = hidden ? '' : 'none';
+  btn.textContent = hidden ? '非表示' : '表示';
+}
+
+let currentMethod = 'ols';
+
+function selectMethod(m) {
+  currentMethod = m;
+  document.querySelectorAll('.method-btn').forEach(b => b.classList.toggle('selected', b.dataset.method === m));
+  document.getElementById('fe-options').style.display = m === 'fe' ? '' : 'none';
+  document.getElementById('fd-options').style.display = m === 'fd' ? '' : 'none';
+  document.getElementById('nb-options').style.display = m === 'nb' ? '' : 'none';
+  const intercept = document.getElementById('intercept');
+  intercept.disabled = m !== 'ols';
+  if (m !== 'ols') { intercept.checked = false; }
+  else { intercept.checked = true; }
+  updateYearFilterVisibility();
+}
+
+function updateVarSelects() {
+  parsedData = parseCSV();
+
+  // ── グループ/時間セレクタ（select要素）を更新 ──
+  const gEl      = document.getElementById('group-var');
+  const gFdEl    = document.getElementById('group-var-fd');
+  const tFdEl    = document.getElementById('time-var-fd');
+  const tFeEl    = document.getElementById('time-var-fe');
+  const gNbEl    = document.getElementById('group-var-nb');
+  const tNbEl    = document.getElementById('time-var-nb');
+  [gEl, gFdEl, tFdEl, tFeEl, gNbEl, tNbEl].forEach(el => { el.innerHTML = ''; });
+
+  if (!parsedData) {
+    document.getElementById('var-checkboxes').innerHTML =
+      '<div style="color:#475569;font-size:0.75rem;padding:8px 0;">— データを読み込んでください —</div>';
+    document.getElementById('run-btn').disabled = true;
+    document.getElementById('year-filter-section').style.display = 'none';
+    return;
+  }
+
+  // グループ/時間セレクタには全列（数値+文字列）
+  parsedData.headers.forEach((h, i) => {
+    const label = parsedData.numericHeaders.includes(h) ? h : h + ' [文字]';
+    gEl.add(new Option(label, h, i===0, i===0));
+    gFdEl.add(new Option(label, h, i===0, i===0));
+    tFdEl.add(new Option(label, h, i===1, i===1));
+    tFeEl.add(new Option(label, h, i===1, i===1));
+    gNbEl.add(new Option(label, h, i===0, i===0));
+    tNbEl.add(new Option(label, h, i===1, i===1));
+  });
+
+  // ── モデル設定：チェックボックス UI を構築 ──
+  const box = document.getElementById('var-checkboxes');
+  box.innerHTML = '';
+  const nums = parsedData.numericHeaders;
+
+  nums.forEach((h, i) => {
+    const row = document.createElement('div');
+    row.className = 'var-row';
+    row.id = `vrow-${h}`;
+
+    // Y ラジオボタン
+    const radio = document.createElement('input');
+    radio.type = 'radio'; radio.name = 'y-radio'; radio.value = h;
+    radio.id = `y-radio-${h}`;
+    if (i === 0) radio.checked = true;
+
+    // X チェックボックス
+    const chk = document.createElement('input');
+    chk.type = 'checkbox'; chk.value = h;
+    chk.id = `x-chk-${h}`;
+    if (i !== 0) chk.checked = true;
+
+    const lbl = document.createElement('label');
+    lbl.className = 'var-label';
+    lbl.htmlFor = `x-chk-${h}`;
+    lbl.textContent = h;
+
+    const typ = document.createElement('span');
+    typ.className = 'var-type';
+    typ.textContent = 'num';
+
+    // Y を選択したら X チェックを外して無効化
+    radio.addEventListener('change', () => refreshVarRows());
+    chk.addEventListener('change',  () => refreshVarRows());
+
+    row.appendChild(radio);
+    row.appendChild(chk);
+    row.appendChild(lbl);
+    row.appendChild(typ);
+    box.appendChild(row);
+  });
+
+  refreshVarRows();
+  document.getElementById('run-btn').disabled = false;
+  updateYearFilterVisibility();
+}
+
+function getActiveTimeVar() {
+  if (currentMethod === 'fe') {
+    if (document.getElementById('twfe').checked) return document.getElementById('time-var-fe').value;
+    return null;
+  }
+  if (currentMethod === 'nb') return document.getElementById('time-var-nb').value;
+  if (currentMethod === 'fd') return document.getElementById('time-var-fd').value;
+  return null;
+}
+
+function updateYearFilterVisibility() {
+  const sec = document.getElementById('year-filter-section');
+  const tVarName = getActiveTimeVar();
+  if (!parsedData || !tVarName || !parsedData.data[tVarName]) {
+    sec.style.display = 'none'; return;
+  }
+  const vals = parsedData.data[tVarName].map(Number).filter(v => !isNaN(v));
+  if (!vals.length) { sec.style.display = 'none'; return; }
+  const minV = Math.min(...vals), maxV = Math.max(...vals);
+  sec.style.display = '';
+  const minSlider = document.getElementById('year-min-slider');
+  const maxSlider = document.getElementById('year-max-slider');
+  const minInput  = document.getElementById('year-min-input');
+  const maxInput  = document.getElementById('year-max-input');
+  // only reset if range changed
+  if (minSlider.min != minV || minSlider.max != maxV) {
+    minSlider.min = maxSlider.min = minV;
+    minSlider.max = maxSlider.max = maxV;
+    minSlider.value = minInput.value = minV;
+    maxSlider.value = maxInput.value = maxV;
+  }
+}
+
+function syncYearSliders(source) {
+  const minSlider = document.getElementById('year-min-slider');
+  const maxSlider = document.getElementById('year-max-slider');
+  const minInput  = document.getElementById('year-min-input');
+  const maxInput  = document.getElementById('year-max-input');
+  let lo = parseFloat(minSlider.value), hi = parseFloat(maxSlider.value);
+  if (source === 'minSlider') { minInput.value = lo; if (lo > hi) { maxSlider.value = lo; maxInput.value = lo; } }
+  if (source === 'maxSlider') { maxInput.value = hi; if (hi < lo) { minSlider.value = hi; minInput.value = hi; } }
+  if (source === 'minInput')  { lo = parseFloat(minInput.value)||lo; minSlider.value = lo; if (lo > hi) { maxSlider.value = lo; maxInput.value = lo; } }
+  if (source === 'maxInput')  { hi = parseFloat(maxInput.value)||hi; maxSlider.value = hi; if (hi < lo) { minSlider.value = hi; minInput.value = hi; } }
+}
+
+document.getElementById('year-min-slider').addEventListener('input', () => syncYearSliders('minSlider'));
+document.getElementById('year-max-slider').addEventListener('input', () => syncYearSliders('maxSlider'));
+document.getElementById('year-min-input').addEventListener('change', () => syncYearSliders('minInput'));
+document.getElementById('year-max-input').addEventListener('change', () => syncYearSliders('maxInput'));
+
+function refreshVarRows() {
+  const nums = parsedData ? parsedData.numericHeaders : [];
+  const selectedY = document.querySelector('input[name="y-radio"]:checked');
+  const yVal = selectedY ? selectedY.value : null;
+  nums.forEach(h => {
+    const row  = document.getElementById(`vrow-${h}`);
+    const chk  = document.getElementById(`x-chk-${h}`);
+    if (!row || !chk) return;
+    const isY = h === yVal;
+    chk.disabled = isY;
+    if (isY) chk.checked = false;
+    row.className = 'var-row' + (isY ? ' is-y' : chk.checked ? ' is-x' : '');
+  });
+}
+
+document.getElementById('csv-input').addEventListener('input', updateVarSelects);
+document.getElementById('delim').addEventListener('change', updateVarSelects);
+document.getElementById('twfe').addEventListener('change', function() {
+  document.getElementById('twfe-time-row').style.display = this.checked ? '' : 'none';
+  updateYearFilterVisibility();
+});
+document.getElementById('time-var-fe').addEventListener('change', updateYearFilterVisibility);
+document.getElementById('time-var-nb').addEventListener('change', updateYearFilterVisibility);
+document.getElementById('time-var-fd').addEventListener('change', updateYearFilterVisibility);
+
+// ── EXAMPLE DATA ──────────────────────────────────────────────────────────
+function loadExample(name) {
+  let csv = '';
+  if (name === 'mtcars') {
+    csv = `mpg,cyl,disp,hp,wt
+21.0,6,160,110,2.620
+21.0,6,160,110,2.875
+22.8,4,108,93,2.320
+21.4,6,258,110,3.215
+18.7,8,360,175,3.440
+18.1,6,225,105,3.460
+14.3,8,360,245,3.570
+24.4,4,147,62,3.190
+22.8,4,141,95,3.150
+19.2,6,168,123,3.440
+17.8,6,168,123,3.440
+16.4,8,276,180,4.070
+17.3,8,276,180,3.730
+15.2,8,276,180,3.780
+10.4,8,472,205,5.250
+10.4,8,460,215,5.424
+14.7,8,440,230,5.345
+32.4,4,79,66,2.200
+30.4,4,76,52,1.615
+33.9,4,71,65,1.835
+21.5,4,120,97,2.465
+15.5,8,318,150,3.520
+15.2,8,304,150,3.435
+13.3,8,350,245,3.840
+19.2,8,400,175,3.845
+27.3,4,79,66,1.935
+26.0,4,120,91,2.140
+30.4,4,95,113,1.513
+15.8,8,351,264,3.170
+19.7,6,145,175,2.770
+15.0,8,301,335,3.570
+21.4,4,121,109,2.780`;
+  } else if (name === 'wage') {
+    // 賃金・教育・経験の模擬データ
+    const rng = lcg(42);
+    const lines = ['wage,educ,exper,female'];
+    for (let i=0;i<80;i++){
+      const educ = Math.floor(rng()*8)+12;
+      const exper = Math.floor(rng()*30)+1;
+      const female = rng()>0.5?1:0;
+      const wage = 5 + 1.2*educ + 0.4*exper - 2.5*female + (rng()-0.5)*8;
+      lines.push(`${wage.toFixed(2)},${educ},${exper},${female}`);
+    }
+    csv = lines.join('\n');
+  } else if (name === 'hetero') {
+    // 意図的に異分散・非線形を含むデータ
+    const rng = lcg(7);
+    const lines = ['y,x1,x2'];
+    for (let i=0;i<60;i++){
+      const x1 = rng()*10;
+      const x2 = rng()*5;
+      const y = 2 + 1.5*x1 - 0.8*x2 + x1*(rng()-0.5)*3; // 異分散
+      lines.push(`${y.toFixed(3)},${x1.toFixed(3)},${x2.toFixed(3)}`);
+    }
+    // 外れ値を2つ追加
+    lines.push('45.0,4.5,2.1');
+    lines.push('-12.0,6.1,3.0');
+    csv = lines.join('\n');
+  }
+  document.getElementById('csv-input').value = csv;
+  updateVarSelects();
+}
+
+function loadPanel() {
+  // 模擬パネルデータ：20企業×5年、賃金関数
+  // wage = α_i + 0.08*educ + 0.04*exper + 0.15*union + ε
+  const rng = lcg(99);
+  const lines = ['id,year,wage,educ,exper,union'];
+  for (let i=1; i<=20; i++) {
+    const fixedEffect = (rng()-0.5)*4; // 個体固定効果
+    const educ = Math.floor(rng()*8)+12; // 時不変（教育年数）
+    for (let t=1; t<=5; t++) {
+      const exper = t + Math.floor(rng()*3);
+      const union = rng()>0.6 ? 1 : 0;
+      const wage = 10 + fixedEffect + 0.08*educ + 0.04*exper + 0.15*union + (rng()-0.5)*1.2;
+      lines.push(`${i},${2019+t},${wage.toFixed(3)},${educ},${exper},${union}`);
+    }
+  }
+  document.getElementById('csv-input').value = lines.join('\n');
+  updateVarSelects();
+  // FEを自動選択してidをグループ変数に
+  selectMethod('fe');
+  setTimeout(() => {
+    document.getElementById('group-var').value = 'id';
+    document.getElementById('y-var').value = 'wage';
+    // x-varsでeduc,exper,unionを選択
+    [...document.getElementById('x-vars').options].forEach(o => {
+      o.selected = ['exper','union'].includes(o.value);
+    });
+  }, 50);
+}
+
+function lcg(seed) {
+  let s = seed;
+  return () => { s=(1664525*s+1013904223)>>>0; return s/0xFFFFFFFF; };
+}
+
+// ── FIXED EFFECTS ESTIMATOR ───────────────────────────────────────────────
+function feEstimate(Y, Xmat, groups, xVars, clusterSE, periods=null) {
+  const n = Y.length, k = xVars.length;
+  const isTWFE = periods !== null;
+  const groupIds = [...new Set(groups)].sort();
+  const G = groupIds.length;
+
+  // 個体平均
+  const groupMeanY = {}, groupMeanX = {};
+  groupIds.forEach(g => {
+    const idx = groups.map((gi,i)=>gi===g?i:-1).filter(i=>i>=0);
+    groupMeanY[g] = idx.reduce((s,i)=>s+Y[i],0)/idx.length;
+    groupMeanX[g] = xVars.map((_,j) => idx.reduce((s,i)=>s+Xmat[i][j],0)/idx.length);
+  });
+
+  // 時間平均（TWFE のみ）
+  const timeMeanY = {}, timeMeanX = {};
+  let T = 0;
+  if (isTWFE) {
+    const periodIds = [...new Set(periods)].sort();
+    T = periodIds.length;
+    periodIds.forEach(t => {
+      const idx = periods.map((ti,i)=>ti===t?i:-1).filter(i=>i>=0);
+      timeMeanY[t] = idx.reduce((s,i)=>s+Y[i],0)/idx.length;
+      timeMeanX[t] = xVars.map((_,j) => idx.reduce((s,i)=>s+Xmat[i][j],0)/idx.length);
+    });
+  }
+
+  // 全体平均
+  const grandMeanY = Y.reduce((s,y)=>s+y,0)/n;
+  const grandMeanX = xVars.map((_,j) => Xmat.reduce((s,r)=>s+r[j],0)/n);
+
+  // Within 変換
+  // 一方向 FE: ỹ = y - ȳ_i
+  // TWFE:      ỹ = y - ȳ_i - ȳ_t + ȳ  （Mundlak デミーン）
+  const Yw = Y.map((y,i) => {
+    let v = y - groupMeanY[groups[i]];
+    if (isTWFE) v = v - timeMeanY[periods[i]] + grandMeanY;
+    return v;
+  });
+  const Xw = Xmat.map((row,i) => row.map((x,j) => {
+    let v = x - groupMeanX[groups[i]][j];
+    if (isTWFE) v = v - timeMeanX[periods[i]][j] + grandMeanX[j];
+    return v;
+  }));
+
+  // OLS on within-transformed data（切片なし）
+  const res = ols(Yw, Xw);
+
+  // within R²
+  const ssTotW = Yw.reduce((s,y)=>s+(y-0)**2, 0); // demeaned, mean=0
+  const r2within = 1 - res.rss/ssTotW;
+
+  // between R²: グループ平均で回帰
+  const gY = groupIds.map(g=>groupMeanY[g]);
+  const gX = groupIds.map(g=>[1,...groupMeanX[g]]);
+  let r2between = null;
+  try {
+    const rb = ols(gY, gX);
+    const yb = gY.reduce((s,y)=>s+y,0)/G;
+    const tsb = gY.reduce((s,y)=>s+(y-yb)**2,0);
+    r2between = 1 - rb.rss/tsb;
+  } catch(e) {}
+
+  // overall R²（original Yとfitted）
+  const yMeanOrig = Y.reduce((s,y)=>s+y,0)/n;
+  const yhatOrig = Y.map((y,i) => {
+    const gMeanY = groupMeanY[groups[i]];
+    const gMeanX = groupMeanX[groups[i]];
+    const xhat = xVars.reduce((s,_,j)=>s+res.beta[j]*Xmat[i][j],0);
+    const xhatG = xVars.reduce((s,_,j)=>s+res.beta[j]*gMeanX[j],0);
+    return gMeanY + xhat - xhatG;
+  });
+  const ssResOrig = Y.reduce((s,y,i)=>s+(y-yhatOrig[i])**2,0);
+  const ssTotOrig = Y.reduce((s,y)=>s+(y-yMeanOrig)**2,0);
+  const r2overall = 1 - ssResOrig/ssTotOrig;
+
+  // 自由度補正（TWFE: n - k - G - T + 1、一方向FE: n - k - G）
+  const dfFE = isTWFE ? n - k - G - T + 1 : n - k - G;
+  const s2fe = res.rss / dfFE;
+  const sfe = Math.sqrt(s2fe);
+
+  // 通常SEを再計算（自由度補正）
+  const Xwt = matT(Xw);
+  const XtX = matMul(Xwt, Xw);
+  const XtXinv = matInv(XtX);
+  const seNormal = XtXinv.map((row,i)=>Math.sqrt(Math.max(row[i]*s2fe,0)));
+
+  // クラスター標準誤差（HC clustering by group）
+  let seCluster = seNormal;
+  if (clusterSE && G >= 2) {
+    // meat: Σ_g (X_g' e_g)(e_g' X_g)
+    const meat = Array.from({length:k},()=>new Array(k).fill(0));
+    groupIds.forEach(g=>{
+      const idx=groups.map((gi,i)=>gi===g?i:-1).filter(i=>i>=0);
+      const score=new Array(k).fill(0);
+      idx.forEach(i=>{
+        Xw[i].forEach((x,j)=>{ score[j]+=x*res.resid[i]; });
+      });
+      score.forEach((s,j)=>score.forEach((s2,l)=>{ meat[j][l]+=s*s2; }));
+    });
+    const sandwich = matMul(matMul(XtXinv, meat), XtXinv);
+    const correction = (G/(G-1))*((n-1)/(n-k)); // small-sample correction
+    seCluster = sandwich.map((row,i)=>Math.sqrt(Math.max(row[i]*correction,0)));
+  }
+
+  const se = clusterSE ? seCluster : seNormal;
+  const tStat = res.beta.map((b,i)=>b/(se[i]+1e-12));
+  const pVal = tStat.map(t=>2*(1-normalCDF(Math.abs(t))));
+
+  // グループ固定効果の推定値（αi = ȳi - X̄iβ）
+  const groupEffects = groupIds.map(g => {
+    const xbarBeta = xVars.reduce((s,_,j)=>s+res.beta[j]*groupMeanX[g][j],0);
+    return { id: g, alpha: groupMeanY[g] - xbarBeta };
+  });
+
+  // 残差（元のスケール）
+  const residOrig = Y.map((y,i)=>y-yhatOrig[i]);
+  const stdResidOrig = residOrig.map(e=>e/sfe);
+  const cookDOrig = stdResidOrig.map((e,i)=>{
+    const h=res.H_diag[i]||0;
+    return (e*e*h)/(k*1+1e-12);
+  });
+
+  return {
+    beta: res.beta, seBeta: se, tStat, pVal,
+    yhat: yhatOrig, resid: residOrig,
+    stdResid: stdResidOrig, H_diag: res.H_diag, cookD: cookDOrig,
+    rss: res.rss, s: sfe, s2: s2fe, df: dfFE, n, k,
+    r2: r2within, r2adj: r2within, // within R²
+    r2between, r2overall,
+    fStat: res.fStat, fPval: res.fPval,
+    G, T, groupIds, groupEffects,
+    dfFE, clusterSE, isTWFE,
+  };
+}
+
+// ── FIRST DIFFERENCE ESTIMATOR ────────────────────────────────────────────
+function fdEstimate(Y, Xmat, groups, timeVar, xVars) {
+  const n = Y.length;
+  // グループ・時間でソートしてΔを計算
+  const idx = Array.from({length:n},(_,i)=>i)
+    .sort((a,b)=> groups[a]!==groups[b] ? String(groups[a]).localeCompare(String(groups[b])) : timeVar[a]-timeVar[b]);
+
+  const dY=[], dX=[];
+  for(let j=1;j<idx.length;j++){
+    const i=idx[j], prev=idx[j-1];
+    if(groups[i]!==groups[prev]) continue; // 別グループならスキップ
+    dY.push(Y[i]-Y[prev]);
+    dX.push(Xmat[i].map((x,k)=>x-Xmat[prev][k]));
+  }
+  if(dY.length < xVars.length+1) throw new Error('差分後の観測数が不足しています');
+
+  const res = ols(dY, dX);
+  const yMean = dY.reduce((s,y)=>s+y,0)/dY.length;
+  const tss = dY.reduce((s,y)=>s+(y-yMean)**2,0);
+  const r2fd = 1-res.rss/tss;
+  const dfFD = dY.length - xVars.length;
+  const s2fd = res.rss/dfFD;
+  const sfd = Math.sqrt(s2fd);
+  const Xdt = matT(dX);
+  const XtX = matMul(Xdt, dX);
+  const XtXinv = matInv(XtX);
+  const se = XtXinv.map((row,i)=>Math.sqrt(Math.max(row[i]*s2fd,0)));
+  const tStat = res.beta.map((b,i)=>b/(se[i]+1e-12));
+  const pVal = tStat.map(t=>2*(1-normalCDF(Math.abs(t))));
+  const G = new Set(groups).size;
+
+  return {
+    beta: res.beta, seBeta: se, tStat, pVal,
+    yhat: res.yhat, resid: res.resid,
+    stdResid: res.resid.map(e=>e/sfd),
+    H_diag: res.H_diag, cookD: res.cookD,
+    rss: res.rss, s: sfd, s2: s2fd, df: dfFD, n: dY.length, k: xVars.length,
+    r2: r2fd, r2adj: r2fd, fStat: res.fStat, fPval: res.fPval,
+    G, isFD: true,
+  };
+}
+
+// ── LANCZOS lgamma (overrides the simpler one above — same name, redefine) ──
+// Note: lgamma is already defined above for incompleteBeta; we reuse that.
+// The Lanczos version below is more accurate for NB log-likelihood.
+function lgammaL(z) {
+  const g=7, c=[0.99999999999980993,676.5203681218851,-1259.1392167224028,771.32342877765313,
+    -176.61502916214059,12.507343278686905,-0.13857109526572012,9.9843695780195716e-6,1.5056327351493116e-7];
+  if (z < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * z)) - lgammaL(1 - z);
+  let zz = z - 1, x = c[0];
+  for (let i = 1; i < g + 2; i++) x += c[i] / (zz + i);
+  const t = zz + g + 0.5;
+  return 0.5 * Math.log(2 * Math.PI) + (zz + 0.5) * Math.log(t) - t + Math.log(x);
+}
+
+// ── WLS (Weighted Least Squares) ──────────────────────────────────────────
+function wls(X, y, w) {
+  const n = y.length, k = X[0].length;
+  const XtWX = Array.from({length:k}, () => new Array(k).fill(0));
+  const XtWy = new Array(k).fill(0);
+  for (let i = 0; i < n; i++) {
+    for (let a = 0; a < k; a++) {
+      XtWy[a] += X[i][a] * w[i] * y[i];
+      for (let b = 0; b < k; b++) XtWX[a][b] += X[i][a] * w[i] * X[i][b];
+    }
+  }
+  return matMul(matInv(XtWX), XtWy.map(v => [v])).map(r => r[0]);
+}
+
+// ── NB GLM (IRLS) ─────────────────────────────────────────────────────────
+// WLS with ridge regularization (λ on non-intercept terms) for numerical stability
+function wlsRidge(X, y, w, lambda=0) {
+  const n=y.length, k=X[0].length;
+  const XtWX=Array.from({length:k},()=>new Array(k).fill(0));
+  const XtWy=new Array(k).fill(0);
+  for(let i=0;i<n;i++){
+    for(let a=0;a<k;a++){
+      XtWy[a]+=X[i][a]*w[i]*y[i];
+      for(let b=0;b<k;b++) XtWX[a][b]+=X[i][a]*w[i]*X[i][b];
+    }
+  }
+  // ridge on all params except intercept (col 0)
+  for(let j=1;j<k;j++) XtWX[j][j]+=lambda;
+  return matMul(matInv(XtWX), XtWy.map(v=>[v])).map(r=>r[0]);
+}
+
+function nbLoglik(Y, mu, alpha) {
+  const invA = 1 / alpha;
+  return Y.reduce((s, yi, i) => {
+    const m = mu[i];
+    return s + lgammaL(yi + invA) - lgammaL(invA) - lgammaL(yi + 1)
+      + yi * Math.log(alpha * m / (1 + alpha * m) + 1e-300)
+      + invA * Math.log(1 / (1 + alpha * m) + 1e-300);
+  }, 0);
+}
+
+function getMu(X, beta) {
+  return X.map(row => {
+    const eta = Math.max(-20, Math.min(20, row.reduce((s,x,j)=>s+x*beta[j],0)));
+    return Math.max(Math.exp(eta), 1e-8);
+  });
+}
+
+// Estimate alpha via method of moments on a simple (no-FE) model
+function estimateAlpha(Y, XsmallCols, maxIter=80) {
+  const n = Y.length;
+  const meanY = Y.reduce((s,y)=>s+y,0)/n;
+  // Build small X: intercept + XsmallCols columns only
+  const Xsmall = Y.map((_,i) => [1, ...XsmallCols.map(col => col[i])]);
+  let beta = new Array(Xsmall[0].length).fill(0);
+  beta[0] = Math.log(meanY + 0.5);
+  let alpha = 1.0;
+  for (let iter = 0; iter < maxIter; iter++) {
+    const mu = getMu(Xsmall, beta);
+    const W = mu.map(m => m / (1 + alpha * m));
+    const eta = Xsmall.map(row => Math.max(-20, Math.min(20, row.reduce((s,x,j)=>s+x*beta[j],0))));
+    const z = eta.map((e,i) => e + (Y[i] - mu[i]) / (mu[i] + 1e-12));
+    let betaNew;
+    try { betaNew = wlsRidge(Xsmall, z, W, 1e-6); } catch(e) { break; }
+    const muNew = getMu(Xsmall, betaNew);
+    const r = muNew.map((m,i) => (Y[i]-m)/Math.sqrt(m+1e-12));
+    const df = Math.max(1, n - Xsmall[0].length);
+    const alphaNew = Math.max(1e-4, Math.min(100, r.reduce((s,ri,i)=>s+(ri*ri-1)/(muNew[i]+1e-12),0)/df));
+    const diff = Math.max(...betaNew.map((b,j)=>Math.abs(b-beta[j])));
+    beta = betaNew; alpha = alphaNew;
+    if (diff < 1e-6) break;
+  }
+  return alpha;
+}
+
+async function nbGLM(Y, X, maxIter=200, tol=1e-7, fixedAlpha=null) {
+  const n = Y.length, k = X[0].length;
+  // Cap iterations for large design matrices (FE case) to prevent browser freeze
+  const effectiveMaxIter = k > 50 ? Math.min(maxIter, 20) : k > 20 ? Math.min(maxIter, 60) : maxIter;
+  const yieldEvery = 5; // yield to browser every N iterations
+  const meanY = Y.reduce((s,y)=>s+y,0)/n;
+  let beta = new Array(k).fill(0);
+  beta[0] = Math.log(meanY + 0.5);
+  let alpha = fixedAlpha !== null ? fixedAlpha : 1.0;
+
+  for (let iter = 0; iter < effectiveMaxIter; iter++) {
+    // Yield to browser UI thread every few iterations
+    if (iter % yieldEvery === 0) await new Promise(r => setTimeout(r, 0));
+    const mu = getMu(X, beta);
+    const W = mu.map(m => m / (1 + alpha * m));
+    const eta = X.map(row => Math.max(-20, Math.min(20, row.reduce((s,x,j)=>s+x*beta[j],0))));
+    const z = eta.map((e,i) => e + (Y[i] - mu[i]) / (mu[i] + 1e-12));
+    let betaNew;
+    try { betaNew = wlsRidge(X, z, W, 1e-4); }
+    catch(e) { break; }
+    // Step-halving
+    const ll0 = nbLoglik(Y, mu, alpha);
+    let ll1 = nbLoglik(Y, getMu(X, betaNew), alpha);
+    let step = 1.0, bTry = betaNew;
+    while (ll1 < ll0 - 1e-6 && step > 1e-4) {
+      step *= 0.5;
+      bTry = betaNew.map((b,j) => beta[j] + step*(b - beta[j]));
+      ll1 = nbLoglik(Y, getMu(X, bTry), alpha);
+    }
+    betaNew = bTry;
+    // Update alpha only if not externally fixed
+    if (fixedAlpha === null) {
+      const muF = getMu(X, betaNew);
+      const df = Math.max(1, n - k);
+      const r = muF.map((m,i) => (Y[i]-m)/Math.sqrt(m+1e-12));
+      alpha = Math.max(1e-4, Math.min(100, r.reduce((s,ri,i)=>s+(ri*ri-1)/(muF[i]+1e-12),0)/df));
+    }
+    const diff = Math.max(...betaNew.map((b,j) => Math.abs(b - beta[j])));
+    beta = betaNew;
+    if (diff < tol) break;
+  }
+
+  const mu = X.map(row => {
+    const eta = row.reduce((s,x,j)=>s+x*beta[j],0);
+    return Math.min(Math.max(Math.exp(eta), 1e-6), 1e10);
+  });
+  const W = mu.map(m => m / (1 + alpha * m));
+  // Yield before heavy SE computation
+  await new Promise(r => setTimeout(r, 0));
+  // Standard errors
+  const XtWX = Array.from({length:k},()=>new Array(k).fill(0));
+  for (let i=0;i<n;i++) for (let a=0;a<k;a++) for (let b=0;b<k;b++) XtWX[a][b]+=X[i][a]*W[i]*X[i][b];
+  let XtWXinv;
+  try { XtWXinv = matInv(XtWX); } catch(e) { XtWXinv = Array.from({length:k},(_,i)=>Array.from({length:k},(_,j)=>i===j?1e-8:0)); }
+  const seBeta = XtWXinv.map((row,i) => Math.sqrt(Math.max(row[i], 1e-16)));
+  const zStat = beta.map((b,i) => b / (seBeta[i] + 1e-12));
+  const pVal = zStat.map(z => 2 * (1 - normalCDF(Math.abs(z))));
+  // Log-likelihood
+  const invA = 1 / alpha;
+  const loglik = Y.reduce((s, yi, i) => {
+    const m = mu[i];
+    return s + lgammaL(yi + invA) - lgammaL(invA) - lgammaL(yi + 1)
+      + yi * Math.log(alpha * m / (1 + alpha * m) + 1e-16)
+      + invA * Math.log(1 / (1 + alpha * m) + 1e-16);
+  }, 0);
+  const aic = -2 * loglik + 2 * (k + 1);
+  const irr = beta.map(b => Math.exp(b));
+  return { beta, seBeta, zStat, pVal, loglik, aic, alpha, mu, n, k, irr };
+}
+
+// ── ZINB (EM algorithm) ───────────────────────────────────────────────────
+function sigmoid(x) { return 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, x)))); }
+
+async function zinbEstimate(Y, X, Xinfl, maxIter=100, tol=1e-5) {
+  const n = Y.length, k = X[0].length, ki = Xinfl[0].length;
+  const zeros = Y.map(y => y === 0);
+  const zeroRate = zeros.filter(Boolean).length / n;
+
+  // Initialize
+  let gamma = new Array(ki).fill(0);
+  gamma[0] = Math.log(zeroRate / (1 - zeroRate + 1e-8) + 1e-8);
+  let nbRes;
+  try { nbRes = await nbGLM(Y, X); } catch(e) { nbRes = { beta: new Array(k).fill(0), alpha: 1, mu: new Array(n).fill(1) }; }
+  let beta = nbRes.beta.slice(), alpha = nbRes.alpha;
+
+  let prevLoglik = -Infinity;
+  for (let iter = 0; iter < maxIter; iter++) {
+    if (iter % 5 === 0) await new Promise(r => setTimeout(r, 0));
+    // E-step: compute posterior prob of structural zero
+    const pi = Xinfl.map(row => sigmoid(row.reduce((s,x,j)=>s+x*gamma[j],0)));
+    const mu = X.map(row => Math.min(Math.max(Math.exp(row.reduce((s,x,j)=>s+x*beta[j],0)), 1e-6), 1e10));
+    const invA = 1 / (alpha + 1e-8);
+    const nbPmf0 = mu.map(m => Math.pow(1 / (1 + alpha * m), invA));
+    const p0 = Y.map((yi, i) => {
+      if (yi > 0) return 0;
+      const piI = pi[i], nb0 = nbPmf0[i];
+      return piI / (piI + (1 - piI) * nb0 + 1e-16);
+    });
+
+    // M-step count part: weighted NB IRLS
+    const wNB = p0.map(p => 1 - p);
+    // weighted IRLS for NB
+    const eta = X.map(row => row.reduce((s,x,j)=>s+x*beta[j],0));
+    for (let irls = 0; irls < 20; irls++) {
+      const muI = eta.map(e => Math.min(Math.max(Math.exp(e), 1e-6), 1e10));
+      const W = muI.map((m, i) => wNB[i] * m / (1 + alpha * m));
+      const z = eta.map((e,i) => e + (Y[i] - muI[i]) / muI[i]);
+      let bNew;
+      try { bNew = wls(X, z, W); } catch(e) { break; }
+      const diff = Math.max(...bNew.map((b,j) => Math.abs(b - beta[j])));
+      beta = bNew;
+      const r = muI.map((m,i) => (Y[i] - m) / Math.sqrt(m));
+      alpha = Math.max(1e-6, r.reduce((s,ri,i)=>s+(ri*ri-1)/muI[i]*wNB[i],0) / (wNB.reduce((s,w)=>s+w,0)+1e-8));
+      if (diff < tol) break;
+    }
+
+    // M-step inflation part: weighted logistic IRLS
+    for (let irls = 0; irls < 20; irls++) {
+      const pI = Xinfl.map(row => sigmoid(row.reduce((s,x,j)=>s+x*gamma[j],0)));
+      const W = p0.map((p0i, i) => p0i * pI[i] * (1 - pI[i]));
+      const zL = Xinfl.map((row,i) => row.reduce((s,x,j)=>s+x*gamma[j],0) + (p0[i]-pI[i])/(pI[i]*(1-pI[i])+1e-10));
+      let gNew;
+      try { gNew = wls(Xinfl, zL, W); } catch(e) { break; }
+      const diff = Math.max(...gNew.map((g,j)=>Math.abs(g-gamma[j])));
+      gamma = gNew;
+      if (diff < tol) break;
+    }
+
+    // Check convergence via log-likelihood
+    const piF = Xinfl.map(row => sigmoid(row.reduce((s,x,j)=>s+x*gamma[j],0)));
+    const muF = X.map(row => Math.min(Math.max(Math.exp(row.reduce((s,x,j)=>s+x*beta[j],0)),1e-6),1e10));
+    const invAF = 1/(alpha+1e-8);
+    const loglik = Y.reduce((s,yi,i)=>{
+      const nb0 = Math.pow(1/(1+alpha*muF[i]),invAF);
+      if (yi === 0) return s + Math.log(piF[i] + (1-piF[i])*nb0 + 1e-16);
+      return s + Math.log(1-piF[i]+1e-16) + lgammaL(yi+invAF)-lgammaL(invAF)-lgammaL(yi+1)
+        + yi*Math.log(alpha*muF[i]/(1+alpha*muF[i])+1e-16)+invAF*Math.log(1/(1+alpha*muF[i])+1e-16);
+    }, 0);
+    if (Math.abs(loglik - prevLoglik) < tol) break;
+    prevLoglik = loglik;
+  }
+
+  // Final stats for count part
+  const muFinal = X.map(row => Math.min(Math.max(Math.exp(row.reduce((s,x,j)=>s+x*beta[j],0)),1e-6),1e10));
+  const WFinal = muFinal.map(m => m/(1+alpha*m));
+  const XtWX = Array.from({length:k},()=>new Array(k).fill(0));
+  for(let i=0;i<n;i++) for(let a=0;a<k;a++) for(let b=0;b<k;b++) XtWX[a][b]+=X[i][a]*WFinal[i]*X[i][b];
+  let XtWXinv; try{XtWXinv=matInv(XtWX);}catch(e){XtWXinv=Array.from({length:k},(_,i)=>Array.from({length:k},(_,j)=>i===j?1e-8:0));}
+  const seBeta = XtWXinv.map((row,i)=>Math.sqrt(Math.max(row[i],1e-16)));
+  const zStat = beta.map((b,i)=>b/(seBeta[i]+1e-12));
+  const pVal = zStat.map(z=>2*(1-normalCDF(Math.abs(z))));
+  const irr = beta.map(b=>Math.exp(b));
+
+  // Final stats for inflation part
+  const piF2 = Xinfl.map(row=>sigmoid(row.reduce((s,x,j)=>s+x*gamma[j],0)));
+  const WI = piF2.map(p=>p*(1-p));
+  const XiWXi = Array.from({length:ki},()=>new Array(ki).fill(0));
+  for(let i=0;i<n;i++) for(let a=0;a<ki;a++) for(let b=0;b<ki;b++) XiWXi[a][b]+=Xinfl[i][a]*WI[i]*Xinfl[i][b];
+  let XiWXiinv; try{XiWXiinv=matInv(XiWXi);}catch(e){XiWXiinv=Array.from({length:ki},(_,i)=>Array.from({length:ki},(_,j)=>i===j?1e-8:0));}
+  const seGamma = XiWXiinv.map((row,i)=>Math.sqrt(Math.max(row[i],1e-16)));
+  const zGamma = gamma.map((g,i)=>g/(seGamma[i]+1e-12));
+  const pGamma = zGamma.map(z=>2*(1-normalCDF(Math.abs(z))));
+
+  const invAF2 = 1/(alpha+1e-8);
+  const loglik = Y.reduce((s,yi,i)=>{
+    const nb0=Math.pow(1/(1+alpha*muFinal[i]),invAF2);
+    if(yi===0) return s+Math.log(piF2[i]+(1-piF2[i])*nb0+1e-16);
+    return s+Math.log(1-piF2[i]+1e-16)+lgammaL(yi+invAF2)-lgammaL(invAF2)-lgammaL(yi+1)
+      +yi*Math.log(alpha*muFinal[i]/(1+alpha*muFinal[i])+1e-16)+invAF2*Math.log(1/(1+alpha*muFinal[i])+1e-16);
+  },0);
+  const aic = -2*loglik + 2*(k+ki+1);
+  return {
+    count: {beta, seBeta, zStat, pVal, irr},
+    inflate: {gamma, seGamma, zGamma, pGamma},
+    alpha, loglik, aic, mu: muFinal, n, k
+  };
+}
+
+// ── RUN REGRESSION ────────────────────────────────────────────────────────
+function toggleSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  const btn = document.getElementById('sidebar-toggle');
+  sidebar.classList.toggle('collapsed');
+  btn.textContent = sidebar.classList.contains('collapsed') ? '▶' : '☰';
+}
+
+function handleRun() {
+  const btn = document.getElementById('run-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ 計算中...';
+  runRegression()
+    .catch(e => {
+      document.getElementById('main').innerHTML =
+        '<div class="placeholder"><span class="err">エラー: ' + e.message + '</span></div>';
+      console.error(e);
+    })
+    .finally(() => {
+      btn.disabled = false;
+      btn.textContent = '回帰を実行';
+    });
+}
+
+async function runRegression() {
+  try {
+    parsedData = parseCSV();
+    if (!parsedData) { alert('データを入力してください'); return; }
+
+    // チェックボックス UI から Y・X を取得
+    const yRadio = document.querySelector('input[name="y-radio"]:checked');
+    if (!yRadio) { alert('目的変数 Y を選択してください'); return; }
+    const yVar = yRadio.value;
+    const xVars = [...document.querySelectorAll('#var-checkboxes input[type="checkbox"]:checked')]
+      .map(c => c.value);
+    if (!xVars.length) { alert('説明変数 X を1つ以上チェックしてください'); return; }
+
+    // ── Year filter ──────────────────────────────────────────────────────
+    const tVarName = getActiveTimeVar();
+    const yearSec = document.getElementById('year-filter-section');
+    let rowMask = null; // null = all rows
+    if (tVarName && parsedData.data[tVarName] && yearSec.style.display !== 'none') {
+      const minYear = parseFloat(document.getElementById('year-min-input').value);
+      const maxYear = parseFloat(document.getElementById('year-max-input').value);
+      if (!isNaN(minYear) && !isNaN(maxYear)) {
+        rowMask = parsedData.data[tVarName].map(v => {
+          const vn = parseFloat(v);
+          return !isNaN(vn) && vn >= minYear && vn <= maxYear;
+        });
+      }
+    }
+    // Apply mask: build filtered data view
+    let data = parsedData.data;
+    let nObs = parsedData.n;
+    if (rowMask) {
+      const filtered = {};
+      parsedData.headers.forEach(h => {
+        filtered[h] = parsedData.data[h].filter((_, i) => rowMask[i]);
+      });
+      data = filtered;
+      nObs = rowMask.filter(Boolean).length;
+      if (nObs < 2) { alert('年フィルター後のデータが不足しています'); return; }
+    }
+
+    // ── NaN listwise deletion ──────────────────────────────────────────────
+    {
+      const allVars = [yVar, ...xVars];
+      const nanMask = Array.from({length: data[yVar].length}, (_,i) =>
+        allVars.every(v => { const val = parseFloat(data[v][i]); return !isNaN(val); })
+      );
+      const nNaN = nanMask.filter(b=>!b).length;
+      if (nNaN > 0) {
+        const filtered2 = {};
+        parsedData.headers.forEach(h => { filtered2[h] = data[h].filter((_,i)=>nanMask[i]); });
+        data = filtered2;
+        console.warn('NaN行を除外: ' + nNaN + '行 → 残り' + nanMask.filter(Boolean).length + '行');
+      }
+    }
+    const Y = data[yVar];
+    const n = Y.length;
+    const Xmat = Array.from({length:n},(_,i)=>xVars.map(v=>data[v][i]));
+    const colNames = xVars;
+
+    window._rowLabels = null; // ホバー表示用の行ラベル（対応できるメソッドのみ設定）
+
+    if (currentMethod === 'nb') {
+      const gVar = document.getElementById('group-var-nb').value;
+      const tVar = document.getElementById('time-var-nb').value;
+      if (!data[gVar]) throw new Error('個体変数を選択してください');
+      if (!data[tVar]) throw new Error('時間変数を選択してください');
+      const groups = data[gVar].map(String);
+      const periods = data[tVar].map(String);
+      const groupIds = [...new Set(groups)].sort();
+      const periodIds = [...new Set(periods)].sort();
+
+      // Build design matrix: intercept + xVars + group dummies (drop first) + period dummies (drop first)
+      const gDummies = groupIds.slice(1).map(g => groups.map(gi => gi === g ? 1 : 0));
+      const tDummies = periodIds.slice(1).map(t => periods.map(ti => ti === t ? 1 : 0));
+      const X = Array.from({length:n}, (_,i) => [
+        1,
+        ...xVars.map(v => data[v][i]),
+        ...gDummies.map(d => d[i]),
+        ...tDummies.map(d => d[i]),
+      ]);
+      const fullColNames = ['(Intercept)', ...xVars,
+        ...groupIds.slice(1).map(g => `entity:${g}`),
+        ...periodIds.slice(1).map(t => `year:${t}`)];
+
+      const doZINB = document.getElementById('zinb-check').checked;
+      // Show loading indicator
+      document.getElementById('main').innerHTML = `<div class="placeholder"><span style="color:#7dd3fc">NB IRLS 計算中... (k=${X[0].length}列)</span></div>`;
+      await new Promise(r => setTimeout(r, 30)); // render the loading message
+      // Pre-estimate alpha without FE dummies to avoid incidental-parameters collapse
+      const Yparsed = Y.map(Number);
+      const xOnlyCols = xVars.map(v => data[v].map(Number));
+      const alphaInit = estimateAlpha(Yparsed, xOnlyCols);
+      const nbRes = await nbGLM(Yparsed, X, 200, 1e-7, alphaInit);
+
+      let zinbRes = null;
+      if (doZINB) {
+        document.getElementById('main').innerHTML = `<div class="placeholder"><span style="color:#7dd3fc">ZINB EM 計算中...</span></div>`;
+        await new Promise(r => setTimeout(r, 30));
+        // Inflation part: intercept + policy vars only (no FE dummies)
+        const Xinfl = Array.from({length:n}, (_,i) => [1, ...xVars.map(v => data[v][i])]);
+        zinbRes = await zinbEstimate(Y, X, Xinfl);
+      }
+
+      renderNBResults(nbRes, zinbRes, fullColNames, xVars, yVar, Y);
+
+    } else if (currentMethod === 'fe') {
+      const gVar = document.getElementById('group-var').value;
+      if (!data[gVar]) throw new Error('グループ変数を選択してください');
+      const groups   = data[gVar].map(String);
+      const clusterSE = document.getElementById('cluster-se').checked;
+      const isTWFE   = document.getElementById('twfe').checked;
+      const tVarFE   = isTWFE ? document.getElementById('time-var-fe').value : null;
+      const periods  = isTWFE ? data[tVarFE].map(String) : null;
+
+      // ── 多重共線性の事前チェック ──────────────────────────────────────
+      const groupIds = [...new Set(groups)].sort();
+      const zeroWithin = xVars.filter(v => {
+        // within変動 = 各グループ内で値が変わるか
+        return groupIds.every(g => {
+          const idx = groups.map((gi,i) => gi===g ? i : -1).filter(i=>i>=0);
+          const vals = new Set(idx.map(i => data[v][i]));
+          return vals.size <= 1; // 全グループで変動なし
+        });
+      });
+      if (zeroWithin.length > 0) {
+        const suggestions = [
+          'これらの変数をXから外す',
+          '期間を広げてデータを増やす',
+          isTWFE ? '時間FEをオフにして一方向FEにする' : null
+        ].filter(Boolean);
+        switchTab('coef');
+        document.getElementById('coef-placeholder').style.display = 'none';
+        const coefPanel = document.getElementById('coef-panel');
+        if (coefPanel) coefPanel.style.display = '';
+        document.getElementById('coef-section').style.display = '';
+        document.getElementById('coef-title').textContent = '⚠ 多重共線性の警告';
+        document.getElementById('summary-section').style.display = 'none';
+        const feGrpSection = document.getElementById('fe-group-section');
+        if (feGrpSection) feGrpSection.style.display = 'none';
+        document.getElementById('coef-table').innerHTML = `
+          <tr><td colspan="10" style="border:none;padding:0;">
+          <div style="display:flex;flex-direction:column;align-items:flex-start;gap:12px;padding:8px 0;">
+            <div style="color:#f87171;font-size:0.95rem;font-weight:700;">⚠ 多重共線性が検出されました</div>
+            <div style="color:#9ca3af;font-size:0.82rem;line-height:1.7;">
+              以下の変数はグループ内（within）で変動がなく、固定効果と完全に共線になります：
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;">
+              ${zeroWithin.map(v=>`<span style="background:#450a0a;color:#fca5a5;font-family:monospace;font-size:0.78rem;padding:3px 10px;border-radius:5px;border:1px solid #7f1d1d;">${v}</span>`).join('')}
+            </div>
+            <div style="color:#6b7280;font-size:0.78rem;border-top:1px solid #1f2937;padding-top:10px;width:100%;">
+              <div style="color:#9ca3af;margin-bottom:6px;font-weight:600;">対処法：</div>
+              ${suggestions.map(s=>`<div style="padding:3px 0;">✦ ${s}</div>`).join('')}
+            </div>
+          </div>
+          </td></tr>`;
+        return;
+      }
+
+      const res = feEstimate(Y, Xmat, groups, xVars, clusterSE, periods);
+      renderResults(res, colNames, yVar, xVars, Y, isTWFE ? 'twfe' : 'fe');
+      window._rowLabels = groups.map((g,i) => isTWFE ? `${g} / ${periods[i]}` : `${g}`);
+
+    } else if (currentMethod === 'fd') {
+      const gVar = document.getElementById('group-var-fd').value;
+      const tVar = document.getElementById('time-var-fd').value;
+      if (!data[gVar]) throw new Error('グループ変数を選択してください');
+      const groups = data[gVar].map(String);
+      const timeV = data[tVar].map(Number);
+      const res = fdEstimate(Y, Xmat, groups, timeV, xVars);
+      renderResults(res, colNames, yVar, xVars, Y, 'fd');
+
+    } else {
+      const intercept = document.getElementById('intercept').checked;
+      const names = intercept ? ['(Intercept)', ...xVars] : xVars;
+      const X = Array.from({length:n},(_,i)=>intercept?[1,...Xmat[i]]:Xmat[i]);
+      const res = ols(Y, X);
+      renderResults(res, names, yVar, xVars, Y, 'ols');
+      const gVarGuess = document.getElementById('group-var')?.value || document.getElementById('group-var-fd')?.value;
+      if (gVarGuess && data[gVarGuess]) {
+        window._rowLabels = data[gVarGuess].map(String);
+      }
+    }
+  } catch(e) {
+    document.getElementById('main').innerHTML = `<div class="placeholder"><span class="err">エラー: ${e.message}</span></div>`;
+    console.error(e);
+  }
+}
+
+// ── RENDER ────────────────────────────────────────────────────────────────
+function renderResults(res, colNames, yVar, xVars, Y, method='ols') {
+  const { beta, seBeta, tStat, pVal, yhat, resid, stdResid, H_diag, cookD, r2, r2adj, fStat, fPval, s, df, n } = res;
+
+  const methodBadge = method === 'twfe'
+    ? '<span class="fe-badge fe">双方向FE</span>'
+    : method === 'fe'
+    ? '<span class="fe-badge fe">固定効果</span>'
+    : method === 'fd'
+    ? '<span class="fe-badge fd">一階差分</span>'
+    : '';
+
+  // Coefficient table
+  document.getElementById('coef-section').style.display = '';
+  document.getElementById('coef-title').textContent = '係数推定';
+  // Remove any ZINB section left from previous NB run
+  document.querySelectorAll('.zinb-section').forEach(el => el.remove());
+  const tbl = document.getElementById('coef-table');
+  const seLabel = (method === 'fe' && res.clusterSE) ? 'クラスターSE' : 'SE';
+  // Show %効果 column when Y variable name contains 'log'
+  const showPct = yVar && /log/i.test(yVar);
+  tbl.innerHTML = `<tr><th>変数${methodBadge}</th><th>β</th><th>${seLabel}</th><th>t</th><th>p</th>${showPct ? '<th>%効果</th>' : ''}</tr>`;
+  colNames.forEach((name, i) => {
+    const p = pVal[i];
+    const sig = p < 0.01 ? '<span class="sig">***</span>' : p < 0.05 ? '<span class="sig">**</span>' : p < 0.1 ? '<span class="marginal">.</span>' : '';
+    const pctEffect = showPct ? ((Math.exp(beta[i]) - 1) * 100).toFixed(1) + '%' : '';
+    tbl.innerHTML += `<tr>
+      <td>${name}</td>
+      <td>${beta[i].toFixed(4)}</td>
+      <td>${seBeta[i].toFixed(4)}</td>
+      <td>${tStat[i].toFixed(3)}</td>
+      <td>${p < 0.001 ? '<0.001' : p.toFixed(3)}${sig}</td>
+      ${showPct ? `<td>${pctEffect}</td>` : ''}
+    </tr>`;
+  });
+
+  // Summary
+  document.getElementById('summary-section').style.display = '';
+  let summaryHTML = '';
+  if (method === 'fe' || method === 'twfe') {
+    const dfLabel = method === 'twfe' ? '自由度 (n-k-G-T+1)' : '自由度 (n-k-G)';
+    summaryHTML = `
+      <div class="stat-box"><div class="val">${n}</div><div class="lbl">観測数 (n)</div></div>
+      <div class="stat-box"><div class="val">${res.G}</div><div class="lbl">個体数 (G)</div></div>
+      ${method==='twfe'?`<div class="stat-box"><div class="val">${res.T}</div><div class="lbl">期間数 (T)</div></div>`:''}
+      <div class="stat-box"><div class="val">${xVars.length}</div><div class="lbl">説明変数 (k)</div></div>
+      <div class="stat-box"><div class="val">${df}</div><div class="lbl">${dfLabel}</div></div>
+      <div class="stat-box"><div class="val">${r2.toFixed(4)}</div><div class="lbl">Within R²</div></div>
+      <div class="stat-box"><div class="val">${res.r2between!=null?res.r2between.toFixed(4):'—'}</div><div class="lbl">Between R²</div></div>
+      <div class="stat-box"><div class="val">${res.r2overall.toFixed(4)}</div><div class="lbl">Overall R²</div></div>
+      <div class="stat-box"><div class="val">${s.toFixed(4)}</div><div class="lbl">残差標準誤差</div></div>
+    `;
+  } else if (method === 'fd') {
+    summaryHTML = `
+      <div class="stat-box"><div class="val">${r2.toFixed(4)}</div><div class="lbl">R²（差分）</div></div>
+      <div class="stat-box"><div class="val">${res.G}</div><div class="lbl">グループ数</div></div>
+      <div class="stat-box"><div class="val">${s.toFixed(4)}</div><div class="lbl">残差標準誤差</div></div>
+      <div class="stat-box"><div class="val">${df}</div><div class="lbl">自由度</div></div>
+      <div class="stat-box"><div class="val">${fStat.toFixed(2)}</div><div class="lbl">F統計量</div></div>
+      <div class="stat-box"><div class="val">${fPval < 0.001 ? '<0.001' : fPval.toFixed(3)}</div><div class="lbl">F p値</div></div>
+    `;
+  } else {
+    summaryHTML = `
+      <div class="stat-box"><div class="val">${r2.toFixed(4)}</div><div class="lbl">R²</div></div>
+      <div class="stat-box"><div class="val">${r2adj.toFixed(4)}</div><div class="lbl">調整済R²</div></div>
+      <div class="stat-box"><div class="val">${s.toFixed(4)}</div><div class="lbl">残差標準誤差</div></div>
+      <div class="stat-box"><div class="val">${df}</div><div class="lbl">自由度</div></div>
+      <div class="stat-box"><div class="val">${fStat.toFixed(2)}</div><div class="lbl">F統計量</div></div>
+      <div class="stat-box"><div class="val">${fPval < 0.001 ? '<0.001' : fPval.toFixed(3)}</div><div class="lbl">F p値</div></div>
+    `;
+  }
+  document.getElementById('summary-grid').innerHTML = summaryHTML;
+
+  // FE: グループ固定効果テーブル
+  const feGrpSection = document.getElementById('fe-group-section');
+  if (method === 'fe' && res.groupEffects && feGrpSection) {
+    feGrpSection.style.display = '';
+    const gt = document.getElementById('group-effects-table');
+    gt.innerHTML = '<tr><th>グループ</th><th>固定効果 α̂ᵢ</th></tr>';
+    res.groupEffects.forEach(({id, alpha}) => {
+      gt.innerHTML += `<tr><td>${id}</td><td>${alpha.toFixed(4)}</td></tr>`;
+    });
+  } else if (feGrpSection) {
+    feGrpSection.style.display = 'none';
+  }
+
+  // Diagnostic notes
+  const outlierIdx = stdResid.map((r,i)=>({r,i})).filter(x=>Math.abs(x.r)>2).map(x=>x.i);
+  const highLev = H_diag.map((h,i)=>({h,i})).filter(x=>x.h > 2*res.k/n).map(x=>x.i);
+  const highCook = cookD.map((d,i)=>({d,i})).filter(x=>x.d > 4/n).map(x=>x.i);
+  const notes = [];
+  if (method === 'twfe') {
+    notes.push(`ℹ️ 双方向FE: ${res.G}個体 × ${res.T}期間、個体+時間効果を同時除去`);
+    if (res.clusterSE) notes.push(`ℹ️ クラスター標準誤差（個体単位、小標本補正済）`);
+    notes.push(`ℹ️ 時不変変数・個体不変変数は識別不可`);
+    notes.push(`⚠️ 処置時期が異なる場合は Staggered DID 手法を検討`);
+  } else if (method === 'fe') {
+    notes.push(`ℹ️ 固定効果推定: ${res.G}個体、within変換後のOLS`);
+    if (res.clusterSE) notes.push(`ℹ️ クラスター標準誤差（個体単位、小標本補正済）`);
+    notes.push(`ℹ️ 時不変変数（教育年数など）は識別不可`);
+    notes.push(`ℹ️ 未観測個体効果を除去`);
+  } else if (method === 'fd') {
+    notes.push(`ℹ️ 一階差分推定: ${res.G}グループ、前期との差分でOLS`);
+    notes.push(`ℹ️ T=2のとき FE と同一の推定量`);
+  }
+  if (outlierIdx.length) notes.push(`⚠️ 標準化残差 |e| > 2 の観測値: ${outlierIdx.map(i=>`#${i+1}`).join(', ')}`);
+  if (highLev.length) notes.push(`📌 高レバレッジ (h > 2k/n): ${highLev.map(i=>`#${i+1}`).join(', ')}`);
+  if (highCook.length) notes.push(`🔴 高Cook's D (D > 4/n): ${highCook.map(i=>`#${i+1}`).join(', ')}`);
+  if (!notes.filter(n=>!n.startsWith('ℹ️')).length) notes.push('✅ 顕著な問題観測値は見当たりません');
+  const absR = resid.map(Math.abs);
+  const spear = spearmanCorr(yhat, absR);
+  if (Math.abs(spear) > 0.3) notes.push(`⚠️ 異分散の可能性 (|残差| vs ŷ のSpearman ρ = ${spear.toFixed(2)})`);
+
+  document.getElementById('diag-notes').innerHTML = notes.join('<br>');
+
+  // 係数タブを表示
+  document.getElementById('coef-placeholder').style.display = 'none';
+  document.getElementById('coef-panel').style.display = '';
+
+  // 診断プロットタブ
+  document.getElementById('plot-placeholder').style.display = 'none';
+  document.getElementById('plot-tabs-wrapper').classList.add('visible');
+
+  // プロットは描画タブ切替後も再描画できるよう保存
+  window._lastRes = res; window._lastYVar = yVar;
+  _activePlot = 0;
+  document.querySelectorAll('.sub-tab-btn').forEach((b, i) => b.classList.toggle('active', i === 0));
+  document.querySelectorAll('.plot-panel').forEach((p, i) => p.classList.toggle('active', i === 0));
+
+  // 最初のプロット（①）だけ即描画。他はサブタブ切替時に描画
+  requestAnimationFrame(() => drawResidVsFitted(res, yVar));
+}
+
+// ── RENDER NB / ZINB RESULTS ─────────────────────────────────────────────
+function renderNBResults(nbRes, zinbRes, fullColNames, xVars, yVar, Y) {
+  const { beta, seBeta, zStat, pVal, irr, loglik, aic, alpha, mu, n, k } = nbRes;
+
+  // Pearson residuals
+  const pearsonResid = Y.map((yi, i) => (yi - mu[i]) / Math.sqrt(mu[i] + alpha * mu[i] * mu[i]));
+  const logMu = mu.map(m => Math.log(m));
+  const zeros_n = new Array(n).fill(0);
+
+  document.getElementById('coef-section').style.display = '';
+  document.getElementById('coef-title').textContent = '係数推定（NB GLM）';
+  document.querySelectorAll('.zinb-section').forEach(el => el.remove());
+
+  const tbl = document.getElementById('coef-table');
+  tbl.innerHTML = `<tr><th>変数 <span class="fe-badge fe">NB</span></th><th>β</th><th>SE</th><th>z</th><th>p</th><th>IRR</th></tr>`;
+  fullColNames.forEach((name, i) => {
+    const p = pVal[i];
+    const sig = p < 0.01 ? '<span class="sig">***</span>' : p < 0.05 ? '<span class="sig">**</span>' : p < 0.1 ? '<span class="marginal">.</span>' : '';
+    tbl.innerHTML += `<tr>
+      <td>${name}</td>
+      <td>${beta[i].toFixed(4)}</td>
+      <td>${seBeta[i].toFixed(4)}</td>
+      <td>${zStat[i].toFixed(3)}</td>
+      <td>${p < 0.001 ? '<0.001' : p.toFixed(3)}${sig}</td>
+      <td style="color:#a78bfa">${irr[i].toFixed(4)}</td>
+    </tr>`;
+  });
+
+  // ZINB section
+  if (zinbRes) {
+    const inflNames = ['(Intercept)', ...xVars];
+    const { count, inflate, alpha: zAlpha, loglik: zLoglik, aic: zAic } = zinbRes;
+    let zinbHTML = `<div class="zinb-section">
+      <h3>Zero-inflation部分 (logit) — ZINB</h3>
+      <table class="coef-table">
+        <tr><th>変数</th><th>γ</th><th>SE</th><th>z</th><th>p</th></tr>`;
+    inflNames.forEach((name, i) => {
+      const p = inflate.pGamma[i];
+      const sig = p < 0.01 ? '<span class="sig">***</span>' : p < 0.05 ? '<span class="sig">**</span>' : p < 0.1 ? '<span class="marginal">.</span>' : '';
+      zinbHTML += `<tr>
+        <td>${name}</td>
+        <td>${inflate.gamma[i].toFixed(4)}</td>
+        <td>${inflate.seGamma[i].toFixed(4)}</td>
+        <td>${inflate.zGamma[i].toFixed(3)}</td>
+        <td>${p < 0.001 ? '<0.001' : p.toFixed(3)}${sig}</td>
+      </tr>`;
+    });
+    zinbHTML += `</table></div>`;
+    document.getElementById('coef-section').insertAdjacentHTML('beforeend', zinbHTML);
+  }
+
+  // Summary
+  document.getElementById('summary-section').style.display = '';
+  const dispAlpha = zinbRes ? zinbRes.alpha : alpha;
+  const dispLoglik = zinbRes ? zinbRes.loglik : loglik;
+  const dispAIC = zinbRes ? zinbRes.aic : aic;
+  document.getElementById('summary-grid').innerHTML = `
+    <div class="stat-box"><div class="val">${n}</div><div class="lbl">観測数 n</div></div>
+    <div class="stat-box"><div class="val">${k}</div><div class="lbl">パラメータ数</div></div>
+    <div class="stat-box"><div class="val">${dispLoglik.toFixed(2)}</div><div class="lbl">Log-likelihood</div></div>
+    <div class="stat-box"><div class="val">${dispAIC.toFixed(2)}</div><div class="lbl">AIC</div></div>
+    <div class="stat-box"><div class="val">${dispAlpha.toFixed(4)}</div><div class="lbl">過分散 α</div></div>
+    <div class="stat-box"><div class="val">${zinbRes ? 'ZINB' : 'NB'}</div><div class="lbl">モデル</div></div>
+  `;
+
+  // Diag notes
+  document.getElementById('fe-group-section').style.display = 'none';
+  const outliers = pearsonResid.map((r,i) => Math.abs(r) > 2 ? i : -1).filter(i => i >= 0);
+  const notes = [
+    `ℹ️ NB GLM: 過分散パラメータ α = ${dispAlpha.toFixed(4)}（α→0 でポワソンに近づく）`,
+    `ℹ️ IRR = exp(β)：説明変数が1単位増加したときのカウントの倍率`,
+    zinbRes ? `ℹ️ ZINB: 構造的ゼロをlogitで別途モデル化` : null,
+    outliers.length ? `⚠️ ピアソン残差 |r| > 2: ${outliers.map(i=>`#${i+1}`).join(', ')}` : '✅ 顕著な外れ値は見当たりません',
+  ].filter(Boolean);
+  document.getElementById('diag-notes').innerHTML = notes.join('<br>');
+
+  // Show panels
+  document.getElementById('coef-placeholder').style.display = 'none';
+  document.getElementById('coef-panel').style.display = '';
+  document.getElementById('plot-placeholder').style.display = 'none';
+  document.getElementById('plot-tabs-wrapper').classList.add('visible');
+
+  // Store result for plots — use Pearson residuals as stdResid
+  const plotRes = {
+    yhat: logMu, resid: pearsonResid, stdResid: pearsonResid,
+    H_diag: zeros_n, cookD: zeros_n, n, k,
+    r2: null, r2adj: null, fStat: null, fPval: null, s: 1, df: n - k,
+  };
+  window._lastRes = plotRes; window._lastYVar = yVar;
+  _activePlot = 0;
+  document.querySelectorAll('.sub-tab-btn').forEach((b, i) => b.classList.toggle('active', i === 0));
+  document.querySelectorAll('.plot-panel').forEach((p, i) => p.classList.toggle('active', i === 0));
+  requestAnimationFrame(() => drawResidVsFitted(plotRes, yVar));
+}
+
+// ── PLOT HELPERS ──────────────────────────────────────────────────────────
+const PAL = {
+  bg: '#ffffff', panelBg: '#f8fafc',
+  grid: '#e2e8f0', axis: '#64748b', tick: '#94a3b8',
+  text: '#1e293b', textSub: '#64748b',
+  point: '#3b82f6', pointStroke: '#1d4ed8',
+  outlier: '#ef4444', outlierStroke: '#b91c1c',
+  line: '#ef4444', refLine: '#94a3b8',
+  band: 'rgba(59,130,246,0.08)',
+  cookD1: '#dc2626', cookD05: '#f97316',
+  leverage: '#8b5cf6',
+};
+
+function setupCanvas(id) {
+  const canvas = document.getElementById(id);
+  const card = canvas.closest('.plot-card-full');
+  let w = card.clientWidth - 48;
+  let h = card.clientHeight - 80;
+  if (w <= 0) w = 640;
+  if (h <= 0) h = 400;
+  const cw = Math.max(w, 200);
+  const ch = Math.max(Math.min(h, Math.round(cw * 0.65)), 200);
+  canvas.width = cw; canvas.height = ch;
+  canvas.style.width  = cw + 'px';
+  canvas.style.height = ch + 'px';
+  return { canvas, ctx: canvas.getContext('2d'), w: cw, h: ch };
+}
+
+function scaleData(vals, lo, hi, minP, maxP) {
+  return vals.map(v => minP + (v - lo) / (hi - lo + 1e-12) * (maxP - minP));
+}
+
+function niceRange(vals) {
+  const mn = Math.min(...vals), mx = Math.max(...vals);
+  const pad = (mx - mn) * 0.1 || 1;
+  return [mn - pad, mx + pad];
+}
+
+function niceTicks(lo, hi, count=5) {
+  const range = hi - lo;
+  const rough = range / count;
+  const mag = Math.pow(10, Math.floor(Math.log10(rough)));
+  const step = [1,2,2.5,5,10].map(f=>f*mag).find(s=>range/s<=count+1) || mag;
+  const ticks = [];
+  const start = Math.ceil(lo / step) * step;
+  for (let v = start; v <= hi + 1e-10; v += step) ticks.push(+v.toPrecision(10));
+  return ticks;
+}
+
+function fmtTick(v) {
+  if (Math.abs(v) >= 10000 || (Math.abs(v) < 0.01 && v !== 0)) return v.toExponential(1);
+  if (Number.isInteger(v) || Math.abs(v) >= 100) return v.toFixed(0);
+  if (Math.abs(v) >= 10) return v.toFixed(1);
+  return v.toFixed(2);
+}
+
+function drawFrame(ctx, w, h, L, R, T, B, xLabel, yLabel, xTicks, xlo, xhi, yTicks, ylo, yhi) {
+  const pw = w - L - R, ph = h - T - B;
+  // background
+  ctx.fillStyle = PAL.bg; ctx.fillRect(0,0,w,h);
+  ctx.fillStyle = PAL.panelBg; ctx.fillRect(L, T, pw, ph);
+  // grid
+  ctx.save(); ctx.strokeStyle = PAL.grid; ctx.lineWidth = 1; ctx.setLineDash([]);
+  xTicks.forEach(v => {
+    const px = L + (v-xlo)/(xhi-xlo)*pw;
+    ctx.beginPath(); ctx.moveTo(px,T); ctx.lineTo(px,T+ph); ctx.stroke();
+  });
+  yTicks.forEach(v => {
+    const py = T + ph - (v-ylo)/(yhi-ylo)*ph;
+    ctx.beginPath(); ctx.moveTo(L,py); ctx.lineTo(L+pw,py); ctx.stroke();
+  });
+  ctx.restore();
+  // axes border
+  ctx.save(); ctx.strokeStyle = PAL.axis; ctx.lineWidth = 1.5;
+  ctx.strokeRect(L, T, pw, ph);
+  ctx.restore();
+  // x tick labels
+  ctx.save(); ctx.font = '11px "Segoe UI", sans-serif'; ctx.fillStyle = PAL.textSub; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  xTicks.forEach(v => {
+    const px = L + (v-xlo)/(xhi-xlo)*pw;
+    if (px < L-2 || px > L+pw+2) return;
+    ctx.fillText(fmtTick(v), px, T+ph+5);
+  });
+  ctx.restore();
+  // y tick labels
+  ctx.save(); ctx.font = '11px "Segoe UI", sans-serif'; ctx.fillStyle = PAL.textSub; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  yTicks.forEach(v => {
+    const py = T + ph - (v-ylo)/(yhi-ylo)*ph;
+    if (py < T-2 || py > T+ph+2) return;
+    ctx.fillText(fmtTick(v), L-6, py);
+  });
+  ctx.restore();
+  // x axis label
+  ctx.save(); ctx.font = '12px "Segoe UI", sans-serif'; ctx.fillStyle = PAL.text; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.fillText(xLabel, L + pw/2, h - 4);
+  ctx.restore();
+  // y axis label (rotated)
+  ctx.save(); ctx.font = '12px "Segoe UI", sans-serif'; ctx.fillStyle = PAL.text; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.translate(14, T + ph/2); ctx.rotate(-Math.PI/2);
+  ctx.fillText(yLabel, 0, 0);
+  ctx.restore();
+}
+
+function toPixel(v, lo, hi, startPx, endPx) {
+  return startPx + (v - lo) / (hi - lo + 1e-12) * (endPx - startPx);
+}
+
+function drawScatter(ctx, xs, ys, xlo, xhi, ylo, yhi, L, T, pw, ph, outliers, radius=1.8, canvasId=null, idxMap=null) {
+  const n = xs.length;
+  const pts = canvasId ? [] : null;
+  for (let i = 0; i < n; i++) {
+    const px = L + (xs[i]-xlo)/(xhi-xlo+1e-12)*pw;
+    const py = T + ph - (ys[i]-ylo)/(yhi-ylo+1e-12)*ph;
+    const isOut = outliers && outliers.includes(i);
+    ctx.beginPath();
+    ctx.arc(px, py, isOut ? radius+1 : radius, 0, Math.PI*2);
+    ctx.fillStyle = isOut ? PAL.outlier : PAL.point;
+    ctx.globalAlpha = isOut ? 1 : 0.65;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = isOut ? PAL.outlierStroke : PAL.pointStroke;
+    ctx.lineWidth = isOut ? 1.5 : 0.8;
+    ctx.stroke();
+    if (pts) pts.push({px, py, i: idxMap ? idxMap[i] : i, x: xs[i], y: ys[i]});
+  }
+  if (canvasId) {
+    window._plotPoints = window._plotPoints || {};
+    window._plotPoints[canvasId] = pts;
+  }
+}
+
+function labelOutliers(ctx, xs, ys, xlo, xhi, ylo, yhi, L, T, pw, ph, indices, labels) {
+  ctx.font = '10px "Segoe UI", sans-serif'; ctx.fillStyle = PAL.outlier; ctx.textBaseline = 'bottom';
+  indices.forEach(i => {
+    const px = L + (xs[i]-xlo)/(xhi-xlo+1e-12)*pw;
+    const py = T + ph - (ys[i]-ylo)/(yhi-ylo+1e-12)*ph;
+    ctx.fillText(labels ? labels[i] : `#${i+1}`, px+7, py-2);
+  });
+}
+
+function drawLoess(ctx, xv, yv, xlo, xhi, ylo, yhi, L, T, pw, ph) {
+  const smooth = loess(xv, yv);
+  const sortIdx = xv.map((_,i)=>i).sort((a,b)=>xv[a]-xv[b]);
+  ctx.save();
+  ctx.strokeStyle = PAL.line; ctx.lineWidth = 2.5; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  sortIdx.forEach((orig, j) => {
+    const px = L + (xv[orig]-xlo)/(xhi-xlo+1e-12)*pw;
+    const py = T + ph - (smooth[j]-ylo)/(yhi-ylo+1e-12)*ph;
+    j === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+  });
+  ctx.stroke();
+  ctx.restore();
+}
+
+function loess(xv, yv, bw=0.6) {
+  const n = xv.length;
+  const idx = Array.from({length:n},(_,i)=>i).sort((a,b)=>xv[a]-xv[b]);
+  const xs = idx.map(i=>xv[i]), ys = idx.map(i=>yv[i]);
+  const k = Math.max(3, Math.floor(bw*n));
+  return xs.map((x) => {
+    const dists = xs.map(xi=>Math.abs(xi-x)).sort((a,b)=>a-b);
+    const hw = dists[k-1] || 1;
+    let sw=0, swx=0, swy=0, swxy=0, swx2=0;
+    xs.forEach((xi,j)=>{
+      const u = Math.abs(xi-x)/hw;
+      if(u>=1) return;
+      const wt = Math.pow(1-u*u*u, 3);
+      sw+=wt; swx+=wt*xi; swy+=wt*ys[j]; swxy+=wt*xi*ys[j]; swx2+=wt*xi*xi;
+    });
+    const det = sw*swx2 - swx*swx;
+    if(Math.abs(det)<1e-12) return swy/(sw||1);
+    const b0=(swy*swx2-swxy*swx)/det, b1=(sw*swxy-swx*swy)/det;
+    return b0+b1*x;
+  });
+}
+
+// Plot 1: Residuals vs Fitted
+function drawResidVsFitted(res, yVar) {
+  const {ctx, w, h} = setupCanvas('c1');
+  const L=62, R=16, T=16, B=42;
+  const pw=w-L-R, ph=h-T-B;
+  const [xlo,xhi] = niceRange(res.yhat);
+  const [ylo,yhi] = niceRange(res.resid);
+  const xTicks = niceTicks(xlo,xhi), yTicks = niceTicks(ylo,yhi);
+  drawFrame(ctx,w,h,L,R,T,B,'ŷ (当てはめ値)','残差',xTicks,xlo,xhi,yTicks,ylo,yhi);
+
+  // zero line
+  const zy = T+ph - (0-ylo)/(yhi-ylo)*ph;
+  ctx.save(); ctx.strokeStyle='#cbd5e1'; ctx.lineWidth=1.5; ctx.setLineDash([5,4]);
+  ctx.beginPath(); ctx.moveTo(L,zy); ctx.lineTo(L+pw,zy); ctx.stroke();
+  ctx.restore();
+
+  drawLoess(ctx,res.yhat,res.resid,xlo,xhi,ylo,yhi,L,T,pw,ph);
+  const outliers = res.stdResid.map((r,i)=>Math.abs(r)>2?i:-1).filter(i=>i>=0);
+  drawScatter(ctx,res.yhat,res.resid,xlo,xhi,ylo,yhi,L,T,pw,ph,outliers,1.8,'c1');
+}
+
+// Plot 2: Normal QQ
+function drawQQ(res) {
+  const {ctx,w,h} = setupCanvas('c2');
+  const L=62, R=16, T=16, B=42;
+  const pw=w-L-R, ph=h-T-B;
+  const n=res.stdResid.length;
+  const origIdx = res.stdResid.map((_,i)=>i).sort((a,b)=>res.stdResid[a]-res.stdResid[b]);
+  const sorted = origIdx.map(i=>res.stdResid[i]);
+  const theorQ = sorted.map((_,i) => normalQuantile((i+0.5)/n));
+  const [xlo,xhi]=niceRange(theorQ);
+  const [ylo,yhi]=niceRange(sorted);
+  const xTicks=niceTicks(xlo,xhi), yTicks=niceTicks(ylo,yhi);
+  drawFrame(ctx,w,h,L,R,T,B,'理論分位数 (正規分布)','標準化残差',xTicks,xlo,xhi,yTicks,ylo,yhi);
+
+  // confidence band
+  ctx.save(); ctx.fillStyle = PAL.band;
+  ctx.beginPath();
+  theorQ.forEach((t,i)=>{
+    const px=L+(t-xlo)/(xhi-xlo)*pw;
+    const py=T+ph-(sorted[i]+1.96*0.25-ylo)/(yhi-ylo)*ph;
+    i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+  });
+  for(let i=n-1;i>=0;i--){
+    const px=L+(theorQ[i]-xlo)/(xhi-xlo)*pw;
+    const py=T+ph-(sorted[i]-1.96*0.25-ylo)/(yhi-ylo)*ph;
+    ctx.lineTo(px,py);
+  }
+  ctx.closePath(); ctx.fill(); ctx.restore();
+
+  // reference line (IQR-based)
+  const q1t=normalQuantile(0.25), q3t=normalQuantile(0.75);
+  const q1s=quantile(sorted,0.25), q3s=quantile(sorted,0.75);
+  const slope=(q3s-q1s)/(q3t-q1t+1e-12), intercept2=q1s-slope*q1t;
+  [[xlo,xhi]].forEach(([x0,x1])=>{
+    const y0=x0*slope+intercept2, y1=x1*slope+intercept2;
+    const px0=L, px1=L+pw;
+    const py0=T+ph-(y0-ylo)/(yhi-ylo)*ph, py1=T+ph-(y1-ylo)/(yhi-ylo)*ph;
+    ctx.save(); ctx.strokeStyle=PAL.refLine; ctx.lineWidth=1.5; ctx.setLineDash([6,4]);
+    ctx.beginPath(); ctx.moveTo(px0,py0); ctx.lineTo(px1,py1); ctx.stroke(); ctx.restore();
+  });
+
+  const outliers=sorted.map((s,i)=>Math.abs(s)>2?i:-1).filter(i=>i>=0);
+  drawScatter(ctx,theorQ,sorted,xlo,xhi,ylo,yhi,L,T,pw,ph,outliers,1.8,'c2',origIdx);
+}
+
+function quantile(sorted, p) {
+  const i=(sorted.length-1)*p;
+  const lo=Math.floor(i),hi=Math.ceil(i);
+  return sorted[lo]*(hi-i)+sorted[hi]*(i-lo);
+}
+
+// Plot 3: Scale-Location
+function drawScaleLocation(res) {
+  const {ctx,w,h} = setupCanvas('c3');
+  const L=62, R=16, T=16, B=42;
+  const pw=w-L-R, ph=h-T-B;
+  const sqrtAbsStd = res.stdResid.map(r=>Math.sqrt(Math.abs(r)));
+  const [xlo,xhi]=niceRange(res.yhat);
+  const [ylo,yhi]=niceRange(sqrtAbsStd);
+  const xTicks=niceTicks(xlo,xhi), yTicks=niceTicks(ylo,yhi);
+  drawFrame(ctx,w,h,L,R,T,B,'ŷ (当てはめ値)','√|標準化残差|',xTicks,xlo,xhi,yTicks,ylo,yhi);
+
+  drawLoess(ctx,res.yhat,sqrtAbsStd,xlo,xhi,ylo,yhi,L,T,pw,ph);
+  const outliers=res.stdResid.map((r,i)=>Math.abs(r)>2?i:-1).filter(i=>i>=0);
+  drawScatter(ctx,res.yhat,sqrtAbsStd,xlo,xhi,ylo,yhi,L,T,pw,ph,outliers,1.8,'c3');
+}
+
+// Plot 4: Residuals vs Leverage
+function drawResidVsLev(res, n) {
+  const {ctx,w,h} = setupCanvas('c4');
+  const L=62, R=16, T=16, B=42;
+  const pw=w-L-R, ph=h-T-B;
+  const [xlo,xhi]=niceRange(res.H_diag);
+  const [ylo,yhi]=niceRange(res.stdResid);
+  const xTicks=niceTicks(xlo,xhi,4), yTicks=niceTicks(ylo,yhi);
+  drawFrame(ctx,w,h,L,R,T,B,'レバレッジ (h)','標準化残差',xTicks,xlo,xhi,yTicks,ylo,yhi);
+
+  // zero line
+  const zy=T+ph-(0-ylo)/(yhi-ylo)*ph;
+  ctx.save(); ctx.strokeStyle='#cbd5e1'; ctx.lineWidth=1.5; ctx.setLineDash([5,4]);
+  ctx.beginPath(); ctx.moveTo(L,zy); ctx.lineTo(L+pw,zy); ctx.stroke(); ctx.restore();
+
+  // Cook's D contours
+  [0.5,1].forEach(D=>{
+    const color = D===1 ? PAL.cookD1 : PAL.cookD05;
+    // filled band under each curve for visibility
+    const upperPts=[], lowerPts=[];
+    for(let t=0;t<=300;t++){
+      const hv=xlo+(xhi-xlo)*t/300;
+      if(hv<=0||hv>=1) continue;
+      const ev=Math.sqrt(D*res.k*(1-hv)/hv);
+      const evn=-ev;
+      const px=L+(hv-xlo)/(xhi-xlo)*pw;
+      if(ev>=ylo && ev<=yhi) upperPts.push([px, T+ph-(ev-ylo)/(yhi-ylo)*ph]);
+      if(evn>=ylo && evn<=yhi) lowerPts.push([px, T+ph-(evn-ylo)/(yhi-ylo)*ph]);
+    }
+    // draw glow (thick semi-transparent)
+    ctx.save();
+    ctx.strokeStyle = color; ctx.lineWidth = 6; ctx.globalAlpha = 0.18; ctx.setLineDash([]);
+    [upperPts, lowerPts].forEach(pts => {
+      if(!pts.length) return;
+      ctx.beginPath(); pts.forEach(([x,y],i)=>i===0?ctx.moveTo(x,y):ctx.lineTo(x,y)); ctx.stroke();
+    });
+    ctx.globalAlpha = 1;
+    // draw solid line on top
+    ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.setLineDash([8,4]);
+    [upperPts, lowerPts].forEach(pts => {
+      if(!pts.length) return;
+      ctx.beginPath(); pts.forEach(([x,y],i)=>i===0?ctx.moveTo(x,y):ctx.lineTo(x,y)); ctx.stroke();
+    });
+    ctx.restore();
+    // label at right end of upper curve
+    if(upperPts.length){
+      const [lx,ly]=upperPts[upperPts.length-1];
+      ctx.save();
+      ctx.font='bold 11px "Segoe UI", sans-serif';
+      ctx.fillStyle='#ffffff';
+      const label=`D=${D}`;
+      const tw=ctx.measureText(label).width;
+      ctx.fillRect(lx+5, ly-9, tw+8, 16);
+      ctx.fillStyle=color;
+      ctx.fillRect(lx+5, ly+7, tw+8, 2);
+      ctx.textBaseline='middle';
+      ctx.fillText(label, lx+9, ly);
+      ctx.restore();
+    }
+  });
+
+  // high leverage threshold
+  const hThresh = 2*res.k/n;
+  const hTPX = L+(hThresh-xlo)/(xhi-xlo)*pw;
+  if(hTPX>L && hTPX<L+pw) {
+    ctx.save();
+    // glow
+    ctx.strokeStyle=PAL.leverage; ctx.lineWidth=6; ctx.globalAlpha=0.18; ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(hTPX,T); ctx.lineTo(hTPX,T+ph); ctx.stroke();
+    ctx.globalAlpha=1;
+    // solid
+    ctx.strokeStyle=PAL.leverage; ctx.lineWidth=2.5; ctx.setLineDash([8,4]);
+    ctx.beginPath(); ctx.moveTo(hTPX,T); ctx.lineTo(hTPX,T+ph); ctx.stroke();
+    ctx.restore();
+    // label badge
+    ctx.save();
+    ctx.font='bold 11px "Segoe UI", sans-serif';
+    const label='2k/n';
+    const tw=ctx.measureText(label).width;
+    ctx.fillStyle='#ffffff'; ctx.fillRect(hTPX+4, T+4, tw+8, 17);
+    ctx.fillStyle=PAL.leverage; ctx.fillRect(hTPX+4, T+21, tw+8, 2);
+    ctx.textBaseline='top'; ctx.fillText(label, hTPX+8, T+7);
+    ctx.restore();
+  }
+
+  const hThreshVal = 2*res.k/n;
+  const outliers=res.stdResid.map((r,i)=>(Math.abs(r)>2||res.H_diag[i]>hThreshVal)?i:-1).filter(i=>i>=0);
+  drawScatter(ctx,res.H_diag,res.stdResid,xlo,xhi,ylo,yhi,L,T,pw,ph,outliers,1.8,'c4');
+}
+
+// ── SPEARMAN CORR ─────────────────────────────────────────────────────────
+// ── POINT TOOLTIP（ホバーで国・年など行ラベルを表示）────────────────────────
+const PLOT_AXIS_NAMES = {
+  c1: ['当てはめ値','残差'],
+  c2: ['理論分位数','標準化残差'],
+  c3: ['当てはめ値','√|標準化残差|'],
+  c4: ['レバレッジ','標準化残差'],
+};
+function setupTooltip(canvasId) {
+  const canvas = document.getElementById(canvasId);
+  const tip = document.getElementById('tip-' + canvasId);
+  if (!canvas || !tip) return;
+  canvas.addEventListener('mousemove', e => {
+    const pts = window._plotPoints && window._plotPoints[canvasId];
+    if (!pts || !pts.length) { tip.style.display = 'none'; return; }
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width, scaleY = canvas.height / rect.height;
+    const mx = (e.clientX - rect.left) * scaleX, my = (e.clientY - rect.top) * scaleY;
+    let best = null, bestD = 14; // ピクセル単位の許容半径
+    pts.forEach(p => {
+      const d = Math.hypot(p.px - mx, p.py - my);
+      if (d < bestD) { bestD = d; best = p; }
+    });
+    if (!best) { tip.style.display = 'none'; return; }
+    const labels = window._rowLabels;
+    const label = labels ? labels[best.i] : `行 #${best.i + 1}`;
+    const [xName, yName] = PLOT_AXIS_NAMES[canvasId];
+    tip.innerHTML = `<b>${label}</b><br>${xName}: ${fmtTick(best.x)}　${yName}: ${fmtTick(best.y)}`;
+    tip.style.display = 'block';
+    tip.style.left = (best.px / scaleX + 14) + 'px';
+    tip.style.top  = (best.py / scaleY - 10) + 'px';
+  });
+  canvas.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+}
+['c1','c2','c3','c4'].forEach(setupTooltip);
+
+// ── DOWNLOAD HELPERS ──────────────────────────────────────────────────────
+function downloadPlot(canvasId, name) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || canvas.width === 0) { alert('先に回帰を実行してください'); return; }
+  const SCALE = 3;
+  const off = document.createElement('canvas');
+  off.width  = canvas.width  * SCALE;
+  off.height = canvas.height * SCALE;
+  const octx = off.getContext('2d');
+  octx.scale(SCALE, SCALE);
+  octx.drawImage(canvas, 0, 0);
+  const a = document.createElement('a');
+  a.href = off.toDataURL('image/png');
+  a.download = `診断プロット_${name}_${new Date().toISOString().slice(0,10)}.png`;
+  a.click();
+}
+
+function downloadCoefCSV() {
+  if (!window._lastRes) { alert('先に回帰を実行してください'); return; }
+  const tbl = document.getElementById('coef-table');
+  if (!tbl) return;
+  const rows = [];
+  tbl.querySelectorAll('tr').forEach(tr => {
+    const cells = [...tr.querySelectorAll('th, td')].map(c => {
+      const v = c.innerText.trim().replace(/,/g, '');
+      return `"${v}"`;
+    });
+    if (cells.length) rows.push(cells.join(','));
+  });
+  // append summary stats
+  rows.push('');
+  document.getElementById('summary-grid').querySelectorAll('.stat-item').forEach(el => {
+    const label = el.querySelector('.stat-label')?.innerText.trim() ?? '';
+    const val   = el.querySelector('.stat-val')?.innerText.trim() ?? '';
+    rows.push(`"${label}","${val}"`);
+  });
+  const bom = '﻿';
+  const blob = new Blob([bom + rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `係数表_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function spearmanCorr(x, y) {
+  const rank = v => {
+    const idx=[...v.keys()].sort((a,b)=>v[a]-v[b]);
+    const r=new Array(v.length);
+    idx.forEach((orig,rank)=>r[orig]=rank+1);
+    return r;
+  };
+  const rx=rank(x), ry=rank(y), n=x.length;
+  const mx=rx.reduce((s,v)=>s+v,0)/n, my=ry.reduce((s,v)=>s+v,0)/n;
+  let num=0, dx2=0, dy2=0;
+  rx.forEach((_,i)=>{const a=rx[i]-mx,b=ry[i]-my;num+=a*b;dx2+=a*a;dy2+=b*b;});
+  return num/Math.sqrt(dx2*dy2+1e-12);
+}
+</script>
+</body>
+</html>
