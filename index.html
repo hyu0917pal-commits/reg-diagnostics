@@ -43,6 +43,28 @@ header .header-spacer { flex: 1; }
 }
 #sidebar-toggle:hover { border-color: #38bdf8; color: #38bdf8; }
 
+#theme-toggle {
+  background: none;
+  border: 1px solid #1f2937;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+#theme-toggle:hover { border-color: #38bdf8; }
+
+/* ライトテーマ：全体を反転し、色相を180度回して元の色味に戻す */
+html.light {
+  filter: invert(0.92) hue-rotate(180deg);
+  background: #f1f5f9;
+}
+
 .layout {
   display: flex;
   height: calc(100vh - 52px);
@@ -254,21 +276,38 @@ textarea:focus, select:focus { outline: none; border-color: #38bdf8; box-shadow:
 .var-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 8px;
-  border-radius: 6px;
-  font-size: 0.79rem;
-  background: #0a0f1e;
-  border: 1px solid #1a2234;
-  transition: border-color 0.12s;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  background: transparent;
+  border: 1px solid transparent;
+  transition: background 0.12s;
 }
-.var-row:hover { border-color: #2d3f5c; }
-.var-row input[type="radio"]  { accent-color: #f97316; cursor: pointer; flex-shrink:0; }
-.var-row input[type="checkbox"] { accent-color: #38bdf8; cursor: pointer; flex-shrink:0; }
-.var-row .var-label { flex: 1; color: #d1d5db; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
-.var-row .var-type  { font-size: 0.63rem; color: #374151; flex-shrink:0; }
-.var-row.is-y { border-color: #92400e; background: #160a00; }
-.var-row.is-x { border-color: #0c4a6e; background: #060d1a; }
+.var-row:hover { background: #141c30; }
+.var-row input[type="radio"], .var-row input[type="checkbox"] { display: none; }
+.var-row .var-label { flex: 1; color: #cbd5e1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.var-row.is-y .var-label { color: #fbbf24; font-weight: 600; }
+.var-row.is-x .var-label { color: #7dd3fc; }
+.yx-btn {
+  width: 26px; height: 22px;
+  border-radius: 6px;
+  border: 1px solid #273449;
+  background: transparent;
+  color: #475569;
+  font-size: 0.68rem;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.12s;
+  padding: 0;
+}
+.yx-btn:hover { border-color: #475569; color: #94a3b8; }
+.yx-btn.y.active { background: #f59e0b; border-color: #f59e0b; color: #0a0f1e; }
+.yx-btn.x.active { background: #38bdf8; border-color: #38bdf8; color: #0a0f1e; }
+.yx-btn:disabled { opacity: 0.25; cursor: default; }
+.var-list-hint { display: flex; gap: 14px; font-size: 0.68rem; color: #64748b; margin-bottom: 6px; }
+.var-list-hint b.y { color: #f59e0b; } .var-list-hint b.x { color: #38bdf8; }
 /* サブタブ（プロット切替） */
 .sub-tab-bar {
   display: flex;
@@ -437,6 +476,8 @@ textarea:focus, select:focus { outline: none; border-color: #38bdf8; box-shadow:
   <button id="sidebar-toggle" onclick="toggleSidebar()" title="サイドバーを開閉">☰</button>
   <h1>📉 回帰診断ダッシュボード</h1>
   <span>OLS · FE · NB · ブラウザのみで動作</span>
+  <span class="header-spacer"></span>
+  <button id="theme-toggle" onclick="toggleTheme()" title="ライト/ダーク切替">☀️</button>
 </header>
 
 <div class="layout">
@@ -478,8 +519,8 @@ textarea:focus, select:focus { outline: none; border-color: #38bdf8; box-shadow:
 
     <div class="sidebar-section">
       <h2>モデル設定</h2>
-      <div style="font-size:0.72rem;color:#64748b;margin-bottom:6px;">目的変数 Y（ラジオ）・説明変数 X（チェック）</div>
-      <div id="var-checkboxes" style="max-height:200px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;">
+      <div class="var-list-hint"><span><b class="y">Y</b> = 目的変数（1つ）</span><span><b class="x">X</b> = 説明変数（複数可）</span></div>
+      <div id="var-checkboxes" style="max-height:240px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;">
         <div style="color:#475569;font-size:0.75rem;padding:8px 0;">— データを読み込んでください —</div>
       </div>
       <label style="margin-top:10px;">
@@ -577,6 +618,7 @@ textarea:focus, select:focus { outline: none; border-color: #38bdf8; box-shadow:
         <div class="panel-card coef-panel-full" id="coef-section">
           <h3 id="coef-title">係数推定</h3>
           <table class="coef-table" id="coef-table"></table>
+          <div style="font-size:0.66rem;color:#64748b;margin-top:8px;">有意水準：*** p&lt;0.001　** p&lt;0.01　* p&lt;0.05　. p&lt;0.1（R標準）</div>
         </div>
         <div class="panel-card" id="summary-section">
           <h3>モデル要約</h3>
@@ -802,8 +844,8 @@ function ols(Y, X) {
   const varBeta = XtXinv.map((row,i) => row[i] * s2);
   const seBeta = varBeta.map(v => Math.sqrt(Math.max(v,0)));
   const tStat = beta.map((b,i) => b / (seBeta[i]+1e-12));
-  // p-value from t-dist (approx via normalCDF for large df, else beta-based)
-  const pVal = tStat.map(t => 2*(1 - normalCDF(Math.abs(t))));
+  // p-value from t-distribution (two-sided)
+  const pVal = tStat.map(t => tPvalTwoSided(t, df));
   // R²
   const yMean = Y.reduce((s,y)=>s+y,0)/n;
   const tss = Y.reduce((s,y)=>s+(y-yMean)**2,0);
@@ -812,6 +854,14 @@ function ols(Y, X) {
   const fStat = (r2/(k-1)) / ((1-r2)/df);
   const fPval = 1 - fCDF(fStat, k-1, df);
   return { beta, seBeta, tStat, pVal, yhat, resid, stdResid, H_diag, cookD, rss, s, s2, df, n, k, r2, r2adj, fStat, fPval };
+}
+
+// t分布の両側p値：P(|T| > t) = I_{df/(df+t²)}(df/2, 1/2)
+function tPvalTwoSided(t, df) {
+  if (!isFinite(t)) return 0;
+  if (!(df > 0)) return NaN;
+  const x = df / (df + t*t);
+  return incompleteBeta(x, df/2, 0.5);
 }
 
 // Normal CDF approximation (Abramowitz & Stegun)
@@ -1081,35 +1131,47 @@ function updateVarSelects() {
     row.className = 'var-row';
     row.id = `vrow-${h}`;
 
-    // Y ラジオボタン
+    // 隠しラジオ・チェックボックス（既存ロジックとの互換用）
     const radio = document.createElement('input');
     radio.type = 'radio'; radio.name = 'y-radio'; radio.value = h;
     radio.id = `y-radio-${h}`;
     if (i === 0) radio.checked = true;
 
-    // X チェックボックス
     const chk = document.createElement('input');
     chk.type = 'checkbox'; chk.value = h;
     chk.id = `x-chk-${h}`;
     if (i !== 0) chk.checked = true;
 
+    // Y / X ピルボタン
+    const yBtn = document.createElement('button');
+    yBtn.type = 'button'; yBtn.className = 'yx-btn y'; yBtn.textContent = 'Y';
+    yBtn.title = '目的変数に設定';
+    yBtn.addEventListener('click', () => { radio.checked = true; refreshVarRows(); });
+
+    const xBtn = document.createElement('button');
+    xBtn.type = 'button'; xBtn.className = 'yx-btn x'; xBtn.textContent = 'X';
+    xBtn.title = '説明変数に追加/除外';
+    xBtn.id = `x-btn-${h}`;
+    xBtn.addEventListener('click', () => {
+      if (chk.disabled) return;
+      chk.checked = !chk.checked;
+      refreshVarRows();
+    });
+
     const lbl = document.createElement('label');
     lbl.className = 'var-label';
-    lbl.htmlFor = `x-chk-${h}`;
     lbl.textContent = h;
-
-    const typ = document.createElement('span');
-    typ.className = 'var-type';
-    typ.textContent = 'num';
-
-    // Y を選択したら X チェックを外して無効化
-    radio.addEventListener('change', () => refreshVarRows());
-    chk.addEventListener('change',  () => refreshVarRows());
+    lbl.addEventListener('click', () => {
+      if (chk.disabled) return;
+      chk.checked = !chk.checked;
+      refreshVarRows();
+    });
 
     row.appendChild(radio);
     row.appendChild(chk);
+    row.appendChild(yBtn);
+    row.appendChild(xBtn);
     row.appendChild(lbl);
-    row.appendChild(typ);
     box.appendChild(row);
   });
 
@@ -1180,6 +1242,10 @@ function refreshVarRows() {
     chk.disabled = isY;
     if (isY) chk.checked = false;
     row.className = 'var-row' + (isY ? ' is-y' : chk.checked ? ' is-x' : '');
+    const yBtn = row.querySelector('.yx-btn.y');
+    const xBtn = row.querySelector('.yx-btn.x');
+    if (yBtn) yBtn.classList.toggle('active', isY);
+    if (xBtn) { xBtn.classList.toggle('active', chk.checked); xBtn.disabled = isY; }
   });
 }
 
@@ -1403,7 +1469,9 @@ function feEstimate(Y, Xmat, groups, xVars, clusterSE, periods=null) {
 
   const se = clusterSE ? seCluster : seNormal;
   const tStat = res.beta.map((b,i)=>b/(se[i]+1e-12));
-  const pVal = tStat.map(t=>2*(1-normalCDF(Math.abs(t))));
+  // クラスターSEの場合は自由度 G-1（Stataの慣習）、通常SEは残差自由度
+  const dfT = clusterSE ? (G - 1) : dfFE;
+  const pVal = tStat.map(t=>tPvalTwoSided(t, dfT));
 
   // グループ固定効果の推定値（αi = ȳi - X̄iβ）
   const groupEffects = groupIds.map(g => {
@@ -1460,7 +1528,7 @@ function fdEstimate(Y, Xmat, groups, timeVar, xVars) {
   const XtXinv = matInv(XtX);
   const se = XtXinv.map((row,i)=>Math.sqrt(Math.max(row[i]*s2fd,0)));
   const tStat = res.beta.map((b,i)=>b/(se[i]+1e-12));
-  const pVal = tStat.map(t=>2*(1-normalCDF(Math.abs(t))));
+  const pVal = tStat.map(t=>tPvalTwoSided(t, dfFD));
   const G = new Set(groups).size;
 
   return {
@@ -1748,6 +1816,21 @@ function toggleSidebar() {
   btn.textContent = sidebar.classList.contains('collapsed') ? '▶' : '☰';
 }
 
+function toggleTheme() {
+  const isLight = document.documentElement.classList.toggle('light');
+  document.getElementById('theme-toggle').textContent = isLight ? '🌙' : '☀️';
+  try { localStorage.setItem('theme', isLight ? 'light' : 'dark'); } catch(e) {}
+}
+// 保存されたテーマを復元
+try {
+  if (localStorage.getItem('theme') === 'light') {
+    document.documentElement.classList.add('light');
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('theme-toggle').textContent = '🌙';
+    });
+  }
+} catch(e) {}
+
 function handleRun() {
   const btn = document.getElementById('run-btn');
   btn.disabled = true;
@@ -1971,20 +2054,36 @@ function renderResults(res, colNames, yVar, xVars, Y, method='ols') {
   document.querySelectorAll('.zinb-section').forEach(el => el.remove());
   const tbl = document.getElementById('coef-table');
   const seLabel = (method === 'fe' && res.clusterSE) ? 'クラスターSE' : 'SE';
-  // Show %効果 column when Y variable name contains 'log'
-  const showPct = yVar && /log/i.test(yVar);
-  tbl.innerHTML = `<tr><th>変数${methodBadge}</th><th>β</th><th>${seLabel}</th><th>t</th><th>p</th>${showPct ? '<th>%効果</th>' : ''}</tr>`;
+  // Show 解釈 column when Y or any X variable name contains 'log'
+  const yIsLog = yVar && /log/i.test(yVar);
+  const showInterp = yIsLog || colNames.some(nm => /log/i.test(nm));
+  tbl.innerHTML = `<tr><th>変数${methodBadge}</th><th>β</th><th>${seLabel}</th><th>t</th><th>p</th>${showInterp ? '<th>解釈</th>' : ''}</tr>`;
   colNames.forEach((name, i) => {
     const p = pVal[i];
-    const sig = p < 0.01 ? '<span class="sig">***</span>' : p < 0.05 ? '<span class="sig">**</span>' : p < 0.1 ? '<span class="marginal">.</span>' : '';
-    const pctEffect = showPct ? ((Math.exp(beta[i]) - 1) * 100).toFixed(1) + '%' : '';
+    const sig = p < 0.001 ? '<span class="sig">***</span>' : p < 0.01 ? '<span class="sig">**</span>' : p < 0.05 ? '<span class="sig">*</span>' : p < 0.1 ? '<span class="marginal">.</span>' : '';
+    let interp = '';
+    if (showInterp && !/intercept/i.test(name)) {
+      const xIsLog = /log/i.test(name);
+      if (yIsLog && xIsLog) {
+        // log-log: elasticity
+        interp = `X+1% → Y ${beta[i] >= 0 ? '+' : ''}${beta[i].toFixed(3)}%（弾力性）`;
+      } else if (yIsLog) {
+        // log-level: semi-elasticity
+        const pct = (Math.exp(beta[i]) - 1) * 100;
+        interp = `X+1単位 → Y ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`;
+      } else if (xIsLog) {
+        // level-log
+        const unit = beta[i] / 100;
+        interp = `X+1% → Y ${unit >= 0 ? '+' : ''}${Math.abs(unit) < 0.01 ? unit.toExponential(2) : unit.toFixed(3)}単位`;
+      }
+    }
     tbl.innerHTML += `<tr>
       <td>${name}</td>
       <td>${beta[i].toFixed(4)}</td>
       <td>${seBeta[i].toFixed(4)}</td>
       <td>${tStat[i].toFixed(3)}</td>
       <td>${p < 0.001 ? '<0.001' : p.toFixed(3)}${sig}</td>
-      ${showPct ? `<td>${pctEffect}</td>` : ''}
+      ${showInterp ? `<td style="font-size:0.72rem;white-space:nowrap;">${interp}</td>` : ''}
     </tr>`;
   });
 
@@ -2102,7 +2201,7 @@ function renderNBResults(nbRes, zinbRes, fullColNames, xVars, yVar, Y) {
   tbl.innerHTML = `<tr><th>変数 <span class="fe-badge fe">NB</span></th><th>β</th><th>SE</th><th>z</th><th>p</th><th>IRR</th></tr>`;
   fullColNames.forEach((name, i) => {
     const p = pVal[i];
-    const sig = p < 0.01 ? '<span class="sig">***</span>' : p < 0.05 ? '<span class="sig">**</span>' : p < 0.1 ? '<span class="marginal">.</span>' : '';
+    const sig = p < 0.001 ? '<span class="sig">***</span>' : p < 0.01 ? '<span class="sig">**</span>' : p < 0.05 ? '<span class="sig">*</span>' : p < 0.1 ? '<span class="marginal">.</span>' : '';
     tbl.innerHTML += `<tr>
       <td>${name}</td>
       <td>${beta[i].toFixed(4)}</td>
@@ -2123,7 +2222,7 @@ function renderNBResults(nbRes, zinbRes, fullColNames, xVars, yVar, Y) {
         <tr><th>変数</th><th>γ</th><th>SE</th><th>z</th><th>p</th></tr>`;
     inflNames.forEach((name, i) => {
       const p = inflate.pGamma[i];
-      const sig = p < 0.01 ? '<span class="sig">***</span>' : p < 0.05 ? '<span class="sig">**</span>' : p < 0.1 ? '<span class="marginal">.</span>' : '';
+      const sig = p < 0.001 ? '<span class="sig">***</span>' : p < 0.01 ? '<span class="sig">**</span>' : p < 0.05 ? '<span class="sig">*</span>' : p < 0.1 ? '<span class="marginal">.</span>' : '';
       zinbHTML += `<tr>
         <td>${name}</td>
         <td>${inflate.gamma[i].toFixed(4)}</td>
