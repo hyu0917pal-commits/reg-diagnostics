@@ -530,11 +530,12 @@ textarea:focus, select:focus { outline: none; border-color: #38bdf8; box-shadow:
 
     <div class="sidebar-section">
       <h2>推定方法</h2>
-      <div style="display:flex;gap:6px;">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
         <button class="method-btn selected" data-method="ols" onclick="selectMethod('ols')">OLS</button>
         <button class="method-btn" data-method="fe" onclick="selectMethod('fe')">固定効果 (FE)</button>
         <button class="method-btn" data-method="fd" onclick="selectMethod('fd')">一階差分 (FD)</button>
         <button class="method-btn" data-method="nb" onclick="selectMethod('nb')">NB</button>
+        <button class="method-btn" data-method="ppml" onclick="selectMethod('ppml')">PPML</button>
       </div>
       <div id="fe-options" style="display:none;margin-top:10px;">
         <label>個体変数（Entity ID）</label>
@@ -574,6 +575,21 @@ textarea:focus, select:focus { outline: none; border-color: #38bdf8; box-shadow:
         <div style="margin-top:8px;font-size:0.72rem;color:#64748b;line-height:1.6;">
           NB GLM：カウントデータの過分散モデル（対数リンク）<br>
           ZINB：構造的ゼロが多い場合に有効。EM法で推定。<br>
+          個体ダミー＋時間ダミーを自動追加（TWFE相当）
+        </div>
+      </div>
+      <div id="ppml-options" style="display:none;margin-top:10px;">
+        <label>個体変数（Entity ID）</label>
+        <select id="group-var-ppml"><option>— データを読み込んでください —</option></select>
+        <label style="margin-top:8px;">時間変数（Period）</label>
+        <select id="time-var-ppml"><option>— データを読み込んでください —</option></select>
+        <label style="margin-top:8px;">
+          <input type="checkbox" id="cluster-se-ppml" checked style="margin-right:6px;">クラスター頑健SE（個体単位）
+        </label>
+        <div style="margin-top:8px;font-size:0.72rem;color:#64748b;line-height:1.6;">
+          PPML：ポアソン擬似最尤法（Santos Silva &amp; Tenreyro 2006）<br>
+          Yはゼロを含むレベル値のまま（対数変換不要）<br>
+          過分散があっても係数は一致推定。頑健SEが標準<br>
           個体ダミー＋時間ダミーを自動追加（TWFE相当）
         </div>
       </div>
@@ -1083,6 +1099,7 @@ function selectMethod(m) {
   document.getElementById('fe-options').style.display = m === 'fe' ? '' : 'none';
   document.getElementById('fd-options').style.display = m === 'fd' ? '' : 'none';
   document.getElementById('nb-options').style.display = m === 'nb' ? '' : 'none';
+  document.getElementById('ppml-options').style.display = m === 'ppml' ? '' : 'none';
   const intercept = document.getElementById('intercept');
   intercept.disabled = m !== 'ols';
   if (m !== 'ols') { intercept.checked = false; }
@@ -1100,7 +1117,9 @@ function updateVarSelects() {
   const tFeEl    = document.getElementById('time-var-fe');
   const gNbEl    = document.getElementById('group-var-nb');
   const tNbEl    = document.getElementById('time-var-nb');
-  [gEl, gFdEl, tFdEl, tFeEl, gNbEl, tNbEl].forEach(el => { el.innerHTML = ''; });
+  const gPpmlEl  = document.getElementById('group-var-ppml');
+  const tPpmlEl  = document.getElementById('time-var-ppml');
+  [gEl, gFdEl, tFdEl, tFeEl, gNbEl, tNbEl, gPpmlEl, tPpmlEl].forEach(el => { el.innerHTML = ''; });
 
   if (!parsedData) {
     document.getElementById('var-checkboxes').innerHTML =
@@ -1119,6 +1138,8 @@ function updateVarSelects() {
     tFeEl.add(new Option(label, h, i===1, i===1));
     gNbEl.add(new Option(label, h, i===0, i===0));
     tNbEl.add(new Option(label, h, i===1, i===1));
+    gPpmlEl.add(new Option(label, h, i===0, i===0));
+    tPpmlEl.add(new Option(label, h, i===1, i===1));
   });
 
   // ── モデル設定：チェックボックス UI を構築 ──
@@ -1186,6 +1207,7 @@ function getActiveTimeVar() {
     return null;
   }
   if (currentMethod === 'nb') return document.getElementById('time-var-nb').value;
+  if (currentMethod === 'ppml') return document.getElementById('time-var-ppml').value;
   if (currentMethod === 'fd') return document.getElementById('time-var-fd').value;
   return null;
 }
@@ -1700,6 +1722,82 @@ async function nbGLM(Y, X, maxIter=200, tol=1e-7, fixedAlpha=null) {
   return { beta, seBeta, zStat, pVal, loglik, aic, alpha, mu, n, k, irr };
 }
 
+// ── PPML (Poisson Pseudo-Maximum Likelihood) ─────────────────────────────
+// Santos Silva & Tenreyro (2006)。頑健SE（サンドイッチ）が標準。
+function poissonLoglik(Y, mu) {
+  return Y.reduce((s, yi, i) => s + yi * Math.log(mu[i] + 1e-16) - mu[i] - lgammaL(yi + 1), 0);
+}
+
+async function ppmlGLM(Y, X, clusterGroups=null, maxIter=100, tol=1e-8) {
+  const n = Y.length, k = X[0].length;
+  const effectiveMaxIter = k > 50 ? Math.min(maxIter, 25) : k > 20 ? Math.min(maxIter, 60) : maxIter;
+  const yieldEvery = 5;
+  const meanY = Y.reduce((s,y)=>s+y,0)/n;
+  let beta = new Array(k).fill(0);
+  beta[0] = Math.log(meanY + 0.1);
+
+  for (let iter = 0; iter < effectiveMaxIter; iter++) {
+    if (iter % yieldEvery === 0) await new Promise(r => setTimeout(r, 0));
+    const mu = getMu(X, beta);
+    const W = mu; // ポアソン: Var = mu
+    const eta = X.map(row => Math.max(-20, Math.min(20, row.reduce((s,x,j)=>s+x*beta[j],0))));
+    const z = eta.map((e,i) => e + (Y[i] - mu[i]) / (mu[i] + 1e-12));
+    let betaNew;
+    try { betaNew = wlsRidge(X, z, W, 1e-4); }
+    catch(e) { break; }
+    // Step-halving
+    const ll0 = poissonLoglik(Y, mu);
+    let ll1 = poissonLoglik(Y, getMu(X, betaNew));
+    let step = 1.0, bTry = betaNew;
+    while (ll1 < ll0 - 1e-6 && step > 1e-4) {
+      step *= 0.5;
+      bTry = betaNew.map((b,j) => beta[j] + step*(b - beta[j]));
+      ll1 = poissonLoglik(Y, getMu(X, bTry));
+    }
+    betaNew = bTry;
+    const diff = Math.max(...betaNew.map((b,j) => Math.abs(b - beta[j])));
+    beta = betaNew;
+    if (diff < tol) break;
+  }
+
+  const mu = X.map(row => {
+    const eta = row.reduce((s,x,j)=>s+x*beta[j],0);
+    return Math.min(Math.max(Math.exp(eta), 1e-6), 1e10);
+  });
+  await new Promise(r => setTimeout(r, 0));
+
+  // Bread: (X'WX)^{-1}, W = mu
+  const XtWX = Array.from({length:k},()=>new Array(k).fill(0));
+  for (let i=0;i<n;i++) for (let a=0;a<k;a++) for (let b=0;b<k;b++) XtWX[a][b]+=X[i][a]*mu[i]*X[i][b];
+  let bread;
+  try { bread = matInv(XtWX); } catch(e) { bread = Array.from({length:k},(_,i)=>Array.from({length:k},(_,j)=>i===j?1e-8:0)); }
+
+  // Meat: 頑健（サンドイッチ）分散。クラスター指定があればクラスター単位で集計
+  const meat = Array.from({length:k},()=>new Array(k).fill(0));
+  if (clusterGroups) {
+    const byCluster = {};
+    clusterGroups.forEach((g,i) => { (byCluster[g] = byCluster[g] || []).push(i); });
+    const G = Object.keys(byCluster).length;
+    Object.values(byCluster).forEach(idx => {
+      const sc = new Array(k).fill(0);
+      idx.forEach(i => { const e = Y[i]-mu[i]; for (let a=0;a<k;a++) sc[a]+=X[i][a]*e; });
+      for (let a=0;a<k;a++) for (let b=0;b<k;b++) meat[a][b]+=sc[a]*sc[b];
+    });
+    const corr = G/(G-1);
+    for (let a=0;a<k;a++) for (let b=0;b<k;b++) meat[a][b]*=corr;
+  } else {
+    for (let i=0;i<n;i++) { const e2 = (Y[i]-mu[i])**2; for (let a=0;a<k;a++) for (let b=0;b<k;b++) meat[a][b]+=X[i][a]*e2*X[i][b]; }
+  }
+  const V = matMul(matMul(bread, meat), bread);
+  const seBeta = V.map((row,i) => Math.sqrt(Math.max(row[i], 1e-16)));
+  const zStat = beta.map((b,i) => b / (seBeta[i] + 1e-12));
+  const pVal = zStat.map(z => 2 * (1 - normalCDF(Math.abs(z))));
+  const loglik = poissonLoglik(Y, mu);
+  const aic = -2 * loglik + 2 * k;
+  const irr = beta.map(b => Math.exp(b));
+  return { beta, seBeta, zStat, pVal, loglik, aic, alpha: null, mu, n, k, irr };
+}
+
 // ── ZINB (EM algorithm) ───────────────────────────────────────────────────
 function sigmoid(x) { return 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, x)))); }
 
@@ -1952,6 +2050,37 @@ async function runRegression() {
 
       renderNBResults(nbRes, zinbRes, fullColNames, xVars, yVar, Y);
 
+    } else if (currentMethod === 'ppml') {
+      const gVar = document.getElementById('group-var-ppml').value;
+      const tVar = document.getElementById('time-var-ppml').value;
+      if (!data[gVar]) throw new Error('個体変数を選択してください');
+      if (!data[tVar]) throw new Error('時間変数を選択してください');
+      const groups = data[gVar].map(String);
+      const periods = data[tVar].map(String);
+      const groupIds = [...new Set(groups)].sort();
+      const periodIds = [...new Set(periods)].sort();
+
+      const gDummies = groupIds.slice(1).map(g => groups.map(gi => gi === g ? 1 : 0));
+      const tDummies = periodIds.slice(1).map(t => periods.map(ti => ti === t ? 1 : 0));
+      const X = Array.from({length:n}, (_,i) => [
+        1,
+        ...xVars.map(v => data[v][i]),
+        ...gDummies.map(d => d[i]),
+        ...tDummies.map(d => d[i]),
+      ]);
+      const fullColNames = ['(Intercept)', ...xVars,
+        ...groupIds.slice(1).map(g => `entity:${g}`),
+        ...periodIds.slice(1).map(t => `year:${t}`)];
+
+      const useCluster = document.getElementById('cluster-se-ppml').checked;
+      document.getElementById('main').innerHTML = `<div class="placeholder"><span style="color:#7dd3fc">PPML IRLS 計算中... (k=${X[0].length}列)</span></div>`;
+      await new Promise(r => setTimeout(r, 30));
+      const Yparsed = Y.map(Number);
+      if (Yparsed.some(y => y < 0)) throw new Error('PPMLの目的変数に負の値があります。レベル値（漁獲量など）を使ってください');
+      const ppmlRes = await ppmlGLM(Yparsed, X, useCluster ? groups : null);
+
+      renderNBResults(ppmlRes, null, fullColNames, xVars, yVar, Y, 'PPML');
+
     } else if (currentMethod === 'fe') {
       const gVar = document.getElementById('group-var').value;
       if (!data[gVar]) throw new Error('グループ変数を選択してください');
@@ -2185,20 +2314,22 @@ function renderResults(res, colNames, yVar, xVars, Y, method='ols') {
 }
 
 // ── RENDER NB / ZINB RESULTS ─────────────────────────────────────────────
-function renderNBResults(nbRes, zinbRes, fullColNames, xVars, yVar, Y) {
+function renderNBResults(nbRes, zinbRes, fullColNames, xVars, yVar, Y, label='NB') {
   const { beta, seBeta, zStat, pVal, irr, loglik, aic, alpha, mu, n, k } = nbRes;
+  const isPPML = label === 'PPML';
 
-  // Pearson residuals
-  const pearsonResid = Y.map((yi, i) => (yi - mu[i]) / Math.sqrt(mu[i] + alpha * mu[i] * mu[i]));
+  // Pearson residuals（PPML: Var=mu、NB: Var=mu+α·mu²）
+  const pearsonResid = Y.map((yi, i) => (yi - mu[i]) / Math.sqrt(mu[i] + (alpha || 0) * mu[i] * mu[i]));
   const logMu = mu.map(m => Math.log(m));
   const zeros_n = new Array(n).fill(0);
 
   document.getElementById('coef-section').style.display = '';
-  document.getElementById('coef-title').textContent = '係数推定（NB GLM）';
+  document.getElementById('coef-title').textContent = isPPML ? '係数推定（PPML）' : '係数推定（NB GLM）';
   document.querySelectorAll('.zinb-section').forEach(el => el.remove());
 
   const tbl = document.getElementById('coef-table');
-  tbl.innerHTML = `<tr><th>変数 <span class="fe-badge fe">NB</span></th><th>β</th><th>SE</th><th>z</th><th>p</th><th>IRR</th></tr>`;
+  const seLbl = isPPML ? '頑健SE' : 'SE';
+  tbl.innerHTML = `<tr><th>変数 <span class="fe-badge fe">${label}</span></th><th>β</th><th>${seLbl}</th><th>z</th><th>p</th><th>IRR</th></tr>`;
   fullColNames.forEach((name, i) => {
     const p = pVal[i];
     const sig = p < 0.001 ? '<span class="sig">***</span>' : p < 0.01 ? '<span class="sig">**</span>' : p < 0.05 ? '<span class="sig">*</span>' : p < 0.1 ? '<span class="marginal">.</span>' : '';
@@ -2243,17 +2374,19 @@ function renderNBResults(nbRes, zinbRes, fullColNames, xVars, yVar, Y) {
   document.getElementById('summary-grid').innerHTML = `
     <div class="stat-box"><div class="val">${n}</div><div class="lbl">観測数 n</div></div>
     <div class="stat-box"><div class="val">${k}</div><div class="lbl">パラメータ数</div></div>
-    <div class="stat-box"><div class="val">${dispLoglik.toFixed(2)}</div><div class="lbl">Log-likelihood</div></div>
+    <div class="stat-box"><div class="val">${dispLoglik.toFixed(2)}</div><div class="lbl">${isPPML ? '擬似Log-lik' : 'Log-likelihood'}</div></div>
     <div class="stat-box"><div class="val">${dispAIC.toFixed(2)}</div><div class="lbl">AIC</div></div>
-    <div class="stat-box"><div class="val">${dispAlpha.toFixed(4)}</div><div class="lbl">過分散 α</div></div>
-    <div class="stat-box"><div class="val">${zinbRes ? 'ZINB' : 'NB'}</div><div class="lbl">モデル</div></div>
+    ${isPPML ? '' : `<div class="stat-box"><div class="val">${dispAlpha.toFixed(4)}</div><div class="lbl">過分散 α</div></div>`}
+    <div class="stat-box"><div class="val">${isPPML ? 'PPML' : zinbRes ? 'ZINB' : 'NB'}</div><div class="lbl">モデル</div></div>
   `;
 
   // Diag notes
   document.getElementById('fe-group-section').style.display = 'none';
   const outliers = pearsonResid.map((r,i) => Math.abs(r) > 2 ? i : -1).filter(i => i >= 0);
   const notes = [
-    `ℹ️ NB GLM: 過分散パラメータ α = ${dispAlpha.toFixed(4)}（α→0 でポワソンに近づく）`,
+    isPPML
+      ? `ℹ️ PPML: ポアソン擬似最尤法。過分散があっても係数は一致推定（頑健SEで対応）。Y=0の観測もそのまま使えます`
+      : `ℹ️ NB GLM: 過分散パラメータ α = ${dispAlpha.toFixed(4)}（α→0 でポワソンに近づく）`,
     `ℹ️ IRR = exp(β)：説明変数が1単位増加したときのカウントの倍率`,
     zinbRes ? `ℹ️ ZINB: 構造的ゼロをlogitで別途モデル化` : null,
     outliers.length ? `⚠️ ピアソン残差 |r| > 2: ${outliers.map(i=>`#${i+1}`).join(', ')}` : '✅ 顕著な外れ値は見当たりません',
