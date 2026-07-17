@@ -508,10 +508,12 @@ textarea:focus, select:focus { outline: none; border-color: #38bdf8; box-shadow:
       </div>
       <input type="file" id="file-input" accept=".csv,.tsv,.txt" style="display:none;" onchange="loadFromFileInput(this)">
       <button onclick="document.getElementById('file-input').click()" style="margin-top:6px;width:100%;padding:6px;border-radius:6px;border:1px dashed #334155;background:#0f172a;color:#64748b;font-size:0.75rem;cursor:pointer;">📂 ファイルを選択して開く</button>
-      <label>区切り文字</label>
+      <label>区切り文字 <span id="delim-detected" style="color:#38bdf8;font-weight:400;"></span></label>
       <select id="delim">
+        <option value="auto" selected>自動判定</option>
         <option value=",">カンマ (,)</option>
         <option value="	">タブ</option>
+        <option value=";">セミコロン (;)</option>
         <option value=" ">スペース</option>
       </select>
       </div><!-- /data-input-body -->
@@ -942,12 +944,43 @@ function lgamma(z){
 // ── CSV PARSE ─────────────────────────────────────────────────────────────
 let parsedData = null;
 
+// 区切り文字の自動判定：先頭数行で候補ごとに「引用符外の出現数」を数え、
+// 全行で1回以上かつ出現数が一致する候補のうち最頻のものを選ぶ
+function detectDelimiter(lines) {
+  const candidates = [',', '\t', ';', ' '];
+  const sample = lines.slice(0, Math.min(10, lines.length));
+  let best = ',', bestScore = -1;
+  for (const sep of candidates) {
+    const counts = sample.map(line => {
+      let cnt = 0, inQ = false;
+      for (const ch of line) {
+        if (ch === '"') inQ = !inQ;
+        else if (ch === sep && !inQ) cnt++;
+      }
+      return cnt;
+    });
+    if (counts.some(c => c === 0)) continue;         // 全行に存在しない候補は除外
+    const consistent = counts.every(c => c === counts[0]);
+    const score = (consistent ? 1000 : 0) + counts[0]; // 一貫性を最優先、次に列数
+    if (score > bestScore) { bestScore = score; best = sep; }
+  }
+  return best;
+}
+
 function parseCSV() {
   const raw = document.getElementById('csv-input').value.trim();
   if (!raw) return null;
-  const delim = document.getElementById('delim').value;
+  let delim = document.getElementById('delim').value;
   const lines = raw.split(/\r?\n|\r/).filter(l => l.trim());
   if (lines.length < 2) return null;
+  const detectedEl = document.getElementById('delim-detected');
+  if (delim === 'auto') {
+    delim = detectDelimiter(lines);
+    const names = {',': 'カンマ', '\t': 'タブ', ';': 'セミコロン', ' ': 'スペース'};
+    detectedEl.textContent = `（${names[delim]}を検出）`;
+  } else {
+    detectedEl.textContent = '';
+  }
 
   // RFC-4180 準拠の分割（引用符内のカンマを無視）
   function splitCSVLine(line, sep) {
@@ -1004,6 +1037,11 @@ function parseCSV() {
 // ── FILE LOAD (共通) ──────────────────────────────────────────────────────
 function readFileAsText(file) {
   if (!file) return;
+  // 拡張子から区切り文字のヒントを得る（.tsv=タブ、.csv=カンマ）。ただし自動判定を優先
+  const delimSel = document.getElementById('delim');
+  if (/\.tsv$/i.test(file.name) || /\.csv$/i.test(file.name)) {
+    delimSel.value = 'auto'; // ファイル読み込み時は常に自動判定に戻す
+  }
   const reader = new FileReader();
   reader.onload = ev => {
     // BOM(﻿)除去・改行正規化
@@ -2371,11 +2409,30 @@ function renderNBResults(nbRes, zinbRes, fullColNames, xVars, yVar, Y, label='NB
   const dispAlpha = zinbRes ? zinbRes.alpha : alpha;
   const dispLoglik = zinbRes ? zinbRes.loglik : loglik;
   const dispAIC = zinbRes ? zinbRes.aic : aic;
+  // ── 疑似決定係数 ──
+  // R²_corr：観測値と予測値の相関の2乗
+  const Ynum = Y.map(Number);
+  const meanYobs = Ynum.reduce((s,y)=>s+y,0)/n;
+  const meanMu = mu.reduce((s,m)=>s+m,0)/n;
+  let covYM = 0, varYo = 0, varM = 0;
+  for (let i = 0; i < n; i++) {
+    covYM += (Ynum[i]-meanYobs)*(mu[i]-meanMu);
+    varYo += (Ynum[i]-meanYobs)**2;
+    varM  += (mu[i]-meanMu)**2;
+  }
+  const r2corr = (covYM*covYM) / (varYo*varM + 1e-12);
+  // McFadden：切片のみモデル（μ₀ = ȳ）との対数尤度比
+  const mu0 = new Array(n).fill(meanYobs);
+  const loglik0 = isPPML ? poissonLoglik(Ynum, mu0) : nbLoglik(Ynum, mu0, alpha);
+  const r2mcf = 1 - loglik / (loglik0 - 1e-12);
+
   document.getElementById('summary-grid').innerHTML = `
     <div class="stat-box"><div class="val">${n}</div><div class="lbl">観測数 n</div></div>
     <div class="stat-box"><div class="val">${k}</div><div class="lbl">パラメータ数</div></div>
     <div class="stat-box"><div class="val">${dispLoglik.toFixed(2)}</div><div class="lbl">${isPPML ? '擬似Log-lik' : 'Log-likelihood'}</div></div>
     <div class="stat-box"><div class="val">${dispAIC.toFixed(2)}</div><div class="lbl">AIC</div></div>
+    <div class="stat-box"><div class="val">${r2corr.toFixed(4)}</div><div class="lbl">R²_corr</div></div>
+    <div class="stat-box"><div class="val">${r2mcf.toFixed(4)}</div><div class="lbl">McFadden疑似R²</div></div>
     ${isPPML ? '' : `<div class="stat-box"><div class="val">${dispAlpha.toFixed(4)}</div><div class="lbl">過分散 α</div></div>`}
     <div class="stat-box"><div class="val">${isPPML ? 'PPML' : zinbRes ? 'ZINB' : 'NB'}</div><div class="lbl">モデル</div></div>
   `;
