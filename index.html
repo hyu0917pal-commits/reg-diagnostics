@@ -306,6 +306,8 @@ textarea:focus, select:focus { outline: none; border-color: #38bdf8; box-shadow:
 .yx-btn.y.active { background: #f59e0b; border-color: #f59e0b; color: #0a0f1e; }
 .yx-btn.x.active { background: #38bdf8; border-color: #38bdf8; color: #0a0f1e; }
 .yx-btn:disabled { opacity: 0.25; cursor: default; }
+.log-btn { flex: 1; padding: 5px 0; border-radius: 6px; border: 1px solid #273449; background: transparent; color: #7dd3fc; font-size: 0.75rem; font-family: monospace; cursor: pointer; }
+.log-btn:hover { border-color: #38bdf8; background: #0c1a2e; }
 .var-list-hint { display: flex; gap: 14px; font-size: 0.68rem; color: #64748b; margin-bottom: 6px; }
 .var-list-hint b.y { color: #f59e0b; } .var-list-hint b.x { color: #38bdf8; }
 /* サブタブ（プロット切替） */
@@ -525,6 +527,15 @@ textarea:focus, select:focus { outline: none; border-color: #38bdf8; box-shadow:
       <div id="var-checkboxes" style="max-height:240px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;">
         <div style="color:#475569;font-size:0.75rem;padding:8px 0;">— データを読み込んでください —</div>
       </div>
+      <div id="log-tool" style="margin-top:10px;padding:8px;border:1px solid #1f2937;border-radius:8px;">
+        <div style="font-size:0.7rem;color:#64748b;margin-bottom:6px;">対数変換した列を追加</div>
+        <select id="log-col" style="width:100%;margin-bottom:6px;"><option>— データを読み込んでください —</option></select>
+        <div style="display:flex;gap:6px;">
+          <button type="button" class="log-btn" onclick="addLogColumn('log')" title="x>0のみ変換。x≦0の行は空欄（回帰から除外）">log(x)</button>
+          <button type="button" class="log-btn" onclick="addLogColumn('log1p')" title="ゼロも残せるが係数の解釈が歪む">log(x+1)</button>
+        </div>
+        <div id="log-msg" style="font-size:0.68rem;color:#94a3b8;margin-top:6px;line-height:1.5;"></div>
+      </div>
       <label style="margin-top:10px;">
         <input type="checkbox" id="intercept" checked style="margin-right:6px;">切片を含む (OLS のみ)
       </label>
@@ -538,6 +549,7 @@ textarea:focus, select:focus { outline: none; border-color: #38bdf8; box-shadow:
         <button class="method-btn" data-method="fd" onclick="selectMethod('fd')">一階差分 (FD)</button>
         <button class="method-btn" data-method="nb" onclick="selectMethod('nb')">NB</button>
         <button class="method-btn" data-method="ppml" onclick="selectMethod('ppml')">PPML</button>
+        <button class="method-btn" data-method="csdid" onclick="selectMethod('csdid')">CS-DiD</button>
       </div>
       <div id="fe-options" style="display:none;margin-top:10px;">
         <label>個体変数（Entity ID）</label>
@@ -593,6 +605,34 @@ textarea:focus, select:focus { outline: none; border-color: #38bdf8; box-shadow:
           Yはゼロを含むレベル値のまま（対数変換不要）<br>
           過分散があっても係数は一致推定。頑健SEが標準<br>
           個体ダミー＋時間ダミーを自動追加（TWFE相当）
+        </div>
+      </div>
+      <div id="csdid-options" style="display:none;margin-top:10px;">
+        <label>個体変数（Entity ID）</label>
+        <select id="group-var-cs"><option>— データを読み込んでください —</option></select>
+        <label style="margin-top:8px;">時間変数（Period）</label>
+        <select id="time-var-cs"><option>— データを読み込んでください —</option></select>
+        <label style="margin-top:8px;">処理ダミー（0/1 政策変数）</label>
+        <select id="treat-var-cs"><option>— データを読み込んでください —</option></select>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <div style="flex:1;">
+            <label style="font-size:0.72rem;">事前窓 K⁻</label>
+            <input type="number" id="cs-pre" value="5" min="1" max="15" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#e2e8f0;font-size:0.8rem;padding:4px 6px;box-sizing:border-box;">
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:0.72rem;">事後窓 K⁺</label>
+            <input type="number" id="cs-post" value="6" min="0" max="20" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#e2e8f0;font-size:0.8rem;padding:4px 6px;box-sizing:border-box;">
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:0.72rem;">Boot回数</label>
+            <input type="number" id="cs-boot" value="300" min="0" max="2000" step="50" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#e2e8f0;font-size:0.8rem;padding:4px 6px;box-sizing:border-box;">
+          </div>
+        </div>
+        <div style="margin-top:8px;font-size:0.72rem;color:#64748b;line-height:1.6;">
+          Callaway &amp; Sant'Anna (2021) staggered DiD。<br>
+          未処理群を比較群にATT(g,t)を集計し、事前トレンドで平行トレンドを検証。<br>
+          被説明変数Y（対数推奨）は上のY選択を使用。処理ダミーの初回=1年が導入年。<br>
+          初年から処理済みの個体は除外、SEは個体クラスターブートストラップ。
         </div>
       </div>
     </div>
@@ -1138,6 +1178,7 @@ function selectMethod(m) {
   document.getElementById('fd-options').style.display = m === 'fd' ? '' : 'none';
   document.getElementById('nb-options').style.display = m === 'nb' ? '' : 'none';
   document.getElementById('ppml-options').style.display = m === 'ppml' ? '' : 'none';
+  document.getElementById('csdid-options').style.display = m === 'csdid' ? '' : 'none';
   const intercept = document.getElementById('intercept');
   intercept.disabled = m !== 'ols';
   if (m !== 'ols') { intercept.checked = false; }
@@ -1157,7 +1198,10 @@ function updateVarSelects() {
   const tNbEl    = document.getElementById('time-var-nb');
   const gPpmlEl  = document.getElementById('group-var-ppml');
   const tPpmlEl  = document.getElementById('time-var-ppml');
-  [gEl, gFdEl, tFdEl, tFeEl, gNbEl, tNbEl, gPpmlEl, tPpmlEl].forEach(el => { el.innerHTML = ''; });
+  const gCsEl    = document.getElementById('group-var-cs');
+  const tCsEl    = document.getElementById('time-var-cs');
+  const dCsEl    = document.getElementById('treat-var-cs');
+  [gEl, gFdEl, tFdEl, tFeEl, gNbEl, tNbEl, gPpmlEl, tPpmlEl, gCsEl, tCsEl, dCsEl].forEach(el => { el.innerHTML = ''; });
 
   if (!parsedData) {
     document.getElementById('var-checkboxes').innerHTML =
@@ -1178,12 +1222,23 @@ function updateVarSelects() {
     tNbEl.add(new Option(label, h, i===1, i===1));
     gPpmlEl.add(new Option(label, h, i===0, i===0));
     tPpmlEl.add(new Option(label, h, i===1, i===1));
+    gCsEl.add(new Option(label, h, i===0, i===0));
+    tCsEl.add(new Option(label, h, i===1, i===1));
+    dCsEl.add(new Option(label, h, false, false));
   });
+  // 処理ダミーの既定値：政策列らしき名前を優先
+  const treatGuess = parsedData.headers.find(h => /^(sfp|finning|fna|fcr|fru|treat|policy|d)$/i.test(h))
+    || parsedData.headers.find(h => { const s=new Set(parsedData.data[h].map(Number).filter(v=>!isNaN(v))); return s.size<=2 && s.has(1); });
+  if (treatGuess) dCsEl.value = treatGuess;
 
   // ── モデル設定：チェックボックス UI を構築 ──
   const box = document.getElementById('var-checkboxes');
   box.innerHTML = '';
   const nums = parsedData.numericHeaders;
+
+  const logSel = document.getElementById('log-col');
+  logSel.innerHTML = '';
+  nums.forEach(h => logSel.add(new Option(h, h)));
 
   nums.forEach((h, i) => {
     const row = document.createElement('div');
@@ -1239,6 +1294,55 @@ function updateVarSelects() {
   updateYearFilterVisibility();
 }
 
+// ── 対数変換列の追加 ──────────────────────────────────────────────────────
+function addLogColumn(mode) {
+  const pd = parseCSV();
+  const msg = document.getElementById('log-msg');
+  if (!pd) { msg.textContent = 'データを読み込んでください'; return; }
+  const src = document.getElementById('log-col').value;
+  if (!pd.data[src]) return;
+  let name = (mode === 'log' ? 'log_' : 'log1p_') + src;
+  while (pd.headers.includes(name)) name += '_2';
+
+  let nBlank = 0;
+  const newVals = pd.data[src].map(x => {
+    if (!isFinite(x)) { nBlank++; return ''; }
+    if (mode === 'log') {
+      if (x <= 0) { nBlank++; return ''; }
+      return String(Math.log(x));
+    }
+    if (x <= -1) { nBlank++; return ''; }
+    return String(Math.log1p(x));
+  });
+
+  // 現在のY/X選択を保存
+  const yCur = document.querySelector('input[name="y-radio"]:checked')?.value;
+  const xCur = new Set([...document.querySelectorAll('#var-checkboxes input[type="checkbox"]:checked')].map(c => c.value));
+
+  // CSVを再構築（カンマ区切り。必要な値は引用符で囲む）
+  const q = v => { const s = String(Number.isNaN(v) ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const headers = [...pd.headers, name];
+  const lines = [headers.map(q).join(',')];
+  for (let i = 0; i < pd.n; i++) {
+    lines.push([...pd.headers.map(h => q(pd.data[h][i])), newVals[i]].join(','));
+  }
+  document.getElementById('csv-input').value = lines.join('\n');
+  document.getElementById('delim').value = 'auto';
+  updateVarSelects();
+
+  // 選択を復元（新しい列は未選択のまま）
+  if (yCur) {
+    const r = document.getElementById(`y-radio-${yCur}`);
+    if (r) r.checked = true;
+  }
+  document.querySelectorAll('#var-checkboxes input[type="checkbox"]').forEach(c => { c.checked = xCur.has(c.value); });
+  refreshVarRows();
+  document.getElementById('log-col').value = src;
+
+  msg.innerHTML = `✅ <b>${name}</b> を追加しました` +
+    (nBlank ? `<br>⚠️ ${nBlank}行は${mode === 'log' ? 'x≦0' : '欠損'}のため空欄（その変数を使うと回帰から除外されます）` : '');
+}
+
 function getActiveTimeVar() {
   if (currentMethod === 'fe') {
     if (document.getElementById('twfe').checked) return document.getElementById('time-var-fe').value;
@@ -1247,6 +1351,7 @@ function getActiveTimeVar() {
   if (currentMethod === 'nb') return document.getElementById('time-var-nb').value;
   if (currentMethod === 'ppml') return document.getElementById('time-var-ppml').value;
   if (currentMethod === 'fd') return document.getElementById('time-var-fd').value;
+  if (currentMethod === 'csdid') return document.getElementById('time-var-cs').value;
   return null;
 }
 
@@ -1994,7 +2099,7 @@ async function runRegression() {
     const yVar = yRadio.value;
     const xVars = [...document.querySelectorAll('#var-checkboxes input[type="checkbox"]:checked')]
       .map(c => c.value);
-    if (!xVars.length) { alert('説明変数 X を1つ以上チェックしてください'); return; }
+    if (!xVars.length && currentMethod !== 'csdid') { alert('説明変数 X を1つ以上チェックしてください'); return; }
 
     // ── Year filter ──────────────────────────────────────────────────────
     const tVarName = getActiveTimeVar();
@@ -2025,7 +2130,7 @@ async function runRegression() {
 
     // ── NaN listwise deletion ──────────────────────────────────────────────
     {
-      const allVars = [yVar, ...xVars];
+      const allVars = currentMethod === 'csdid' ? [yVar] : [yVar, ...xVars];
       const nanMask = Array.from({length: data[yVar].length}, (_,i) =>
         allVars.every(v => { const val = parseFloat(data[v][i]); return !isNaN(val); })
       );
@@ -2044,7 +2149,32 @@ async function runRegression() {
 
     window._rowLabels = null; // ホバー表示用の行ラベル（対応できるメソッドのみ設定）
 
-    if (currentMethod === 'nb') {
+    if (currentMethod === 'csdid') {
+      const gVar = document.getElementById('group-var-cs').value;
+      const tVar = document.getElementById('time-var-cs').value;
+      const dVar = document.getElementById('treat-var-cs').value;
+      if (!data[gVar]) throw new Error('個体変数を選択してください');
+      if (!data[tVar]) throw new Error('時間変数を選択してください');
+      if (!data[dVar]) throw new Error('処理ダミー（政策変数）を選択してください');
+      const preK  = Math.max(1, parseInt(document.getElementById('cs-pre').value)  || 5);
+      const postK = Math.max(0, parseInt(document.getElementById('cs-post').value) || 6);
+      const B     = Math.max(0, parseInt(document.getElementById('cs-boot').value) || 0);
+      // 個体・年・処理・Y を揃えて欠損行を除外
+      const gA=[],tA=[],dA=[],yA=[];
+      for (let i=0;i<n;i++){
+        const yv=Number(Y[i]), tv=Number(data[tVar][i]), dv=Number(data[dVar][i]);
+        if (isNaN(yv)||isNaN(tv)||isNaN(dv)) continue;
+        gA.push(String(data[gVar][i])); tA.push(tv); dA.push(dv>0.5?1:0); yA.push(yv);
+      }
+      const dset=new Set(dA);
+      if (!dset.has(1)) throw new Error('処理ダミーに 1（処理）がありません。0/1 の政策列を選んでください');
+      document.getElementById('main').innerHTML =
+        `<div class="placeholder"><span style="color:#7dd3fc">CS-DiD 計算中... (ブートストラップ ${B} 回)</span></div>`;
+      await new Promise(r => setTimeout(r, 30));
+      const csRes = csdidEstimate(yA, gA, tA, dA, {preK, postK, B});
+      renderCSDID(csRes, yVar, dVar);
+
+    } else if (currentMethod === 'nb') {
       const gVar = document.getElementById('group-var-nb').value;
       const tVar = document.getElementById('time-var-nb').value;
       if (!data[gVar]) throw new Error('個体変数を選択してください');
@@ -2467,6 +2597,235 @@ function renderNBResults(nbRes, zinbRes, fullColNames, xVars, yVar, Y, label='NB
   document.querySelectorAll('.sub-tab-btn').forEach((b, i) => b.classList.toggle('active', i === 0));
   document.querySelectorAll('.plot-panel').forEach((p, i) => p.classList.toggle('active', i === 0));
   requestAnimationFrame(() => drawResidVsFitted(plotRes, yVar));
+}
+
+// ── CS-DiD (Callaway & Sant'Anna 2021 staggered DiD) ───────────────────────
+function csdidEstimate(y, g, t, d, opts) {
+  const preK = opts.preK, postK = opts.postK, B = opts.B;
+  const n = y.length;
+  const minYear = Math.min(...t), maxYear = Math.max(...t);
+  const allYears = [...new Set(t)].sort((a,b)=>a-b);
+
+  // 個体 → {year→y} と 導入年
+  const uYear = new Map();      // unit -> Map(year -> yVal)
+  const firstTreat = new Map(); // unit -> 導入年 (処理==1の最小年) or Infinity
+  for (let i=0;i<n;i++){
+    if(!uYear.has(g[i])) uYear.set(g[i], new Map());
+    uYear.get(g[i]).set(t[i], y[i]);
+    if (d[i]===1){
+      const cur = firstTreat.get(g[i]);
+      if (cur===undefined || t[i]<cur) firstTreat.set(g[i], t[i]);
+    }
+  }
+  const units = [...uYear.keys()];
+  const adopt = new Map();  // unit -> 導入年 (初年から処理済みは除外)
+  const never = [];
+  for (const u of units){
+    const ft = firstTreat.get(u);
+    if (ft===undefined) never.push(u);
+    else if (ft > minYear) adopt.set(u, ft);   // 初年導入(=常時処理)は除外
+  }
+  if (never.length < 2) throw new Error('未処理（never-treated）個体が2未満です。比較群が作れません');
+  const cohorts = [...new Set([...adopt.values()])].sort((a,b)=>a-b);
+  if (!cohorts.length) throw new Error('導入年を持つ処理個体がありません（全個体が初年から処理済み/未処理）');
+
+  const yAt = (u, yr) => { const m=uYear.get(u); return m && m.has(yr) ? m.get(yr) : null; };
+  const meanLevel = (arr, yr) => { let s=0,k=0; for(const u of arr){const v=yAt(u,yr); if(v!==null){s+=v;k++;}} return k? s/k : null; };
+
+  // 与えられた処理個体配列(adoptArr: [{u,gy}])と未処理配列(neverArr)からATT群を計算
+  function computeATTs(adoptArr, neverArr){
+    const neverMean = {}; for(const yr of allYears) neverMean[yr] = meanLevel(neverArr, yr);
+    const coh = {}; for(const {u,gy} of adoptArr){ (coh[gy]=coh[gy]||[]).push(u); }
+    const cohYears = Object.keys(coh).map(Number);
+    function att(e){
+      let num=0, den=0;
+      for(const gy of cohYears){
+        const tt=gy+e, base=gy-1;
+        if (tt<minYear||tt>maxYear||base<minYear) continue;
+        const nb=neverMean[base], nt=neverMean[tt];
+        if (nb===null||nt===null) continue;
+        let s=0,k=0;
+        for(const u of coh[gy]){ const a=yAt(u,tt), b=yAt(u,base); if(a!==null&&b!==null){ s+=(a-b); k++; } }
+        if (!k) continue;
+        num += k*((s/k)-(nt-nb)); den += k;
+      }
+      return den? num/den : NaN;
+    }
+    const evs={}; for(let e=-preK;e<=postK;e++){ if(e===-1){evs[e]=0;continue;} evs[e]=att(e); }
+    const postVals=[]; for(let e=0;e<=postK;e++) if(!isNaN(evs[e])) postVals.push(evs[e]);
+    const preVals=[];  for(let e=-preK;e<=-2;e++) if(!isNaN(evs[e])) preVals.push(evs[e]);
+    const mean=a=>a.length? a.reduce((s,v)=>s+v,0)/a.length : NaN;
+    return {evs, overall: mean(postVals), pre: mean(preVals)};
+  }
+
+  const adoptArr = [...adopt.entries()].map(([u,gy])=>({u,gy}));
+  const point = computeATTs(adoptArr, never);
+
+  // 個体クラスターブートストラップ
+  const allU = [...adoptArr.map(a=>a.u), ...never];
+  const boots = { overall:[], pre:[], ev:{} };
+  for(let e=-preK;e<=postK;e++) boots.ev[e]=[];
+  let rng = lcg(12345);
+  for(let b=0;b<B;b++){
+    const aB=[], nB=[];
+    for(let i=0;i<allU.length;i++){
+      const u = allU[Math.floor(rng()*allU.length)];
+      if (adopt.has(u)) aB.push({u, gy:adopt.get(u)}); else nB.push(u);
+    }
+    if (nB.length<2 || !aB.length) continue;
+    const r = computeATTs(aB, nB);
+    if(!isNaN(r.overall)) boots.overall.push(r.overall);
+    if(!isNaN(r.pre))     boots.pre.push(r.pre);
+    for(let e=-preK;e<=postK;e++) if(!isNaN(r.evs[e])) boots.ev[e].push(r.evs[e]);
+  }
+  const sd = a => { if(a.length<2) return NaN; const m=a.reduce((s,v)=>s+v,0)/a.length; return Math.sqrt(a.reduce((s,v)=>s+(v-m)*(v-m),0)/(a.length-1)); };
+  const pv = (est,se) => { if(isNaN(se)||se===0||isNaN(est)) return NaN; const z=est/se; return 2*(1-normalCDF(Math.abs(z))); };
+
+  const seOverall=sd(boots.overall), sePre=sd(boots.pre);
+  const eventStudy=[];
+  for(let e=-preK;e<=postK;e++){
+    const est=point.evs[e];
+    const se = e===-1 ? 0 : sd(boots.ev[e]);
+    eventStudy.push({e, att:est, se, p: e===-1?NaN:pv(est,se)});
+  }
+  return {
+    overall: point.overall, seOverall, pOverall: pv(point.overall, seOverall),
+    pre: point.pre, sePre, pPre: pv(point.pre, sePre),
+    eventStudy, nObs:n, nUnits:units.length, nTreated:adopt.size, nNever:never.length,
+    nCohorts:cohorts.length, minYear, maxYear, preK, postK, B: boots.overall.length,
+  };
+}
+
+function renderCSDID(res, yVar, treatVar){
+  const isLog = /^(log|ln|ihs|arcsinh)/i.test(yVar) || /log/i.test(yVar);
+  const star = p => isNaN(p)?'' : p<0.001?'<span class="sig">***</span>':p<0.01?'<span class="sig">**</span>':p<0.05?'<span class="sig">*</span>':p<0.1?'<span class="marginal">.</span>':'';
+  const fp = p => isNaN(p)?'—':(p<0.001?'<0.001':p.toFixed(3));
+  const pct = b => isNaN(b)?'—':((Math.exp(b)-1)*100).toFixed(1)+'%';
+
+  document.getElementById('coef-section').style.display='';
+  document.getElementById('coef-title').textContent = `CS-DiD：ATT 集計（処理=${treatVar}）`;
+  document.querySelectorAll('.zinb-section').forEach(el=>el.remove());
+
+  const tbl=document.getElementById('coef-table');
+  tbl.innerHTML = `<tr><th>項目 <span class="fe-badge fe">CS-DiD</span></th><th>ATT</th><th>Boot SE</th><th>z</th><th>p</th>${isLog?'<th>%効果</th>':''}</tr>`;
+  const rowMain = (name,est,se,p,hi)=>{
+    const z=(isNaN(se)||se===0)?NaN:est/se;
+    tbl.innerHTML += `<tr${hi?' style="background:rgba(56,189,248,0.06)"':''}>
+      <td>${name}</td>
+      <td><b>${isNaN(est)?'—':est.toFixed(4)}</b></td>
+      <td>${isNaN(se)?'—':se.toFixed(4)}</td>
+      <td>${isNaN(z)?'—':z.toFixed(3)}</td>
+      <td>${fp(p)}${star(p)}</td>
+      ${isLog?`<td style="color:#a78bfa">${pct(est)}</td>`:''}
+    </tr>`;
+  };
+  rowMain(`総合ATT（事後 e=0..${res.postK} 平均）`, res.overall, res.seOverall, res.pOverall, true);
+  rowMain(`事前トレンド（e=-${res.preK}..-2 平均）`, res.pre, res.sePre, res.pPre, false);
+  tbl.innerHTML += `<tr><td colspan="${isLog?6:5}" style="border:none;padding:9px 0 3px;color:#64748b;font-size:0.72rem;font-weight:700;">イベントスタディ（e=-1 を基準=0）</td></tr>`;
+  res.eventStudy.forEach(({e,att,se,p})=>{
+    const z=(isNaN(se)||se===0)?NaN:att/se;
+    const base = e===-1;
+    tbl.innerHTML += `<tr>
+      <td style="font-family:monospace;${base?'color:#94a3b8':''}">e = ${e>=0?'+':''}${e}${base?'（基準）':''}</td>
+      <td>${isNaN(att)?'—':att.toFixed(4)}</td>
+      <td>${base?'—':(isNaN(se)?'—':se.toFixed(4))}</td>
+      <td>${isNaN(z)?'—':z.toFixed(3)}</td>
+      <td>${base?'—':fp(p)+star(p)}</td>
+      ${isLog?`<td style="color:#a78bfa">${base?'0%':pct(att)}</td>`:''}
+    </tr>`;
+  });
+
+  // 要約
+  document.getElementById('summary-section').style.display='';
+  const ptOK = !isNaN(res.pPre) && res.pPre>=0.1;
+  document.getElementById('summary-grid').innerHTML = `
+    <div class="stat-box"><div class="val">${res.nObs}</div><div class="lbl">観測数 n</div></div>
+    <div class="stat-box"><div class="val">${res.nUnits}</div><div class="lbl">個体数</div></div>
+    <div class="stat-box"><div class="val">${res.nTreated}</div><div class="lbl">処理個体（switchers）</div></div>
+    <div class="stat-box"><div class="val">${res.nNever}</div><div class="lbl">未処理（never）</div></div>
+    <div class="stat-box"><div class="val">${res.nCohorts}</div><div class="lbl">導入コホート数</div></div>
+    <div class="stat-box"><div class="val">${res.B}</div><div class="lbl">有効Boot回数</div></div>
+    <div class="stat-box"><div class="val" style="color:${ptOK?'#34d399':'#f87171'}">${ptOK?'OK':'注意'}</div><div class="lbl">平行トレンド</div></div>
+    <div class="stat-box"><div class="val">CS-DiD</div><div class="lbl">推定量</div></div>
+  `;
+
+  // 診断メモ
+  document.getElementById('fe-group-section').style.display='none';
+  const notes=[];
+  notes.push(ptOK
+    ? `✅ 平行トレンド：事前トレンド平均は有意でない（p=${fp(res.pPre)}）→ CS-DiD の識別仮定と整合的`
+    : `⚠️ 事前トレンドが有意（p=${fp(res.pPre)}）→ 平行トレンド仮定に疑問。総合ATTは慎重に解釈`);
+  notes.push(`ℹ️ Callaway &amp; Sant'Anna (2021)：コホート×時点ごとの ATT(g,t) を never-treated 比較で推定し、事後 e=0..${res.postK} を単純平均。基準は導入前年 e=-1`);
+  notes.push(`ℹ️ SE は個体クラスターブートストラップ（${res.B} 回）。z=ATT/SE、正規近似で両側 p`);
+  if (isLog) notes.push(`ℹ️ Y は対数変数と判定 → %効果 = (exp(ATT)-1)×100（半弾力性）`);
+  notes.push(`ℹ️ 初年から処理済みの個体は除外（導入前を観測できないため）。処理個体 ${res.nTreated} / 未処理 ${res.nNever}`);
+  document.getElementById('diag-notes').innerHTML = notes.join('<br>');
+
+  // イベントスタディ図（係数パネル内に描画）
+  const panel=document.getElementById('coef-panel');
+  let card=document.getElementById('cs-ev-card');
+  if(!card){
+    card=document.createElement('div'); card.className='panel-card'; card.id='cs-ev-card';
+    card.innerHTML='<h3>イベントスタディ図（動学 ATT と 95%CI）</h3><canvas id="cs-ev" style="width:100%;display:block;"></canvas>';
+    document.getElementById('summary-section').insertAdjacentElement('afterend', card);
+  }
+  document.getElementById('coef-placeholder').style.display='none';
+  panel.style.display='';
+  setTimeout(()=>drawEventStudy('cs-ev', res), 60);
+  window.addEventListener('resize', ()=>{ if(document.getElementById('cs-ev')) drawEventStudy('cs-ev', res); }, {once:true});
+
+  // 残差プロットタブは CS-DiD では使わない
+  document.getElementById('plot-tabs-wrapper').classList.remove('visible');
+  const pph=document.getElementById('plot-placeholder');
+  if(pph){ pph.style.display=''; const sp=pph.querySelector('span'); if(sp) sp.textContent='CS-DiD：イベントスタディ図は「係数・要約」タブに表示されます'; }
+}
+
+function drawEventStudy(id, res){
+  const canvas=document.getElementById(id);
+  const parent=canvas.parentElement;
+  const w=Math.max(parent.clientWidth-4, 360), h=380;
+  canvas.width=w; canvas.height=h; canvas.style.height=h+'px';
+  const ctx=canvas.getContext('2d');
+  const ev=res.eventStudy;
+  const L=58,R=18,T=16,Bm=42, pw=w-L-R, ph=h-T-Bm;
+  const es=ev.map(d=>d.e);
+  const xlo=Math.min(...es)-0.5, xhi=Math.max(...es)+0.5;
+  const lows=ev.map(d=>isNaN(d.att)?0:d.att-1.96*(d.se||0));
+  const highs=ev.map(d=>isNaN(d.att)?0:d.att+1.96*(d.se||0));
+  let [ylo,yhi]=niceRange([...lows,...highs,0]);
+  const xTicks=es.slice(), yTicks=niceTicks(ylo,yhi);
+  drawFrame(ctx,w,h,L,R,T,Bm,'イベント時間 e（導入年=0）','ATT（Yの単位）',xTicks,xlo,xhi,yTicks,ylo,yhi);
+  const X=e=>L+(e-xlo)/(xhi-xlo)*pw;
+  const Yp=v=>T+ph-(v-ylo)/(yhi-ylo)*ph;
+  // 0 水平線
+  ctx.save(); ctx.strokeStyle='#cbd5e1'; ctx.lineWidth=1.4; ctx.setLineDash([5,4]);
+  ctx.beginPath(); ctx.moveTo(L,Yp(0)); ctx.lineTo(L+pw,Yp(0)); ctx.stroke(); ctx.restore();
+  // 導入時点 縦線 (e=-0.5)
+  ctx.save(); ctx.strokeStyle='#f59e0b'; ctx.lineWidth=1.4; ctx.setLineDash([4,4]);
+  ctx.beginPath(); ctx.moveTo(X(-0.5),T); ctx.lineTo(X(-0.5),T+ph); ctx.stroke(); ctx.restore();
+  // 点推定を結ぶ線
+  ctx.save(); ctx.strokeStyle='rgba(59,130,246,0.45)'; ctx.lineWidth=1.6; ctx.beginPath();
+  let started=false;
+  ev.forEach(d=>{ if(isNaN(d.att))return; const px=X(d.e),py=Yp(d.att); if(!started){ctx.moveTo(px,py);started=true;}else ctx.lineTo(px,py); });
+  ctx.stroke(); ctx.restore();
+  // CI と点
+  ev.forEach(d=>{
+    if(isNaN(d.att)) return;
+    const px=X(d.e), base=d.e===-1;
+    const se=d.se||0, lo=Yp(d.att-1.96*se), hi=Yp(d.att+1.96*se);
+    if(!base && se>0){
+      ctx.save(); ctx.strokeStyle='#1d4ed8'; ctx.lineWidth=1.6;
+      ctx.beginPath(); ctx.moveTo(px,lo); ctx.lineTo(px,hi); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(px-4,lo); ctx.lineTo(px+4,lo);
+      ctx.moveTo(px-4,hi); ctx.lineTo(px+4,hi); ctx.stroke(); ctx.restore();
+    }
+    const py=Yp(d.att);
+    ctx.save();
+    ctx.beginPath(); ctx.arc(px,py,base?5:4.5,0,2*Math.PI);
+    ctx.fillStyle = base?'#ffffff':(d.e>=0?'#2563eb':'#64748b');
+    ctx.strokeStyle = base?'#64748b':'#1d4ed8'; ctx.lineWidth=1.8;
+    ctx.fill(); ctx.stroke(); ctx.restore();
+  });
 }
 
 // ── PLOT HELPERS ──────────────────────────────────────────────────────────
