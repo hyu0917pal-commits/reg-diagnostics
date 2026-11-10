@@ -617,17 +617,20 @@ textarea:focus, select:focus { outline: none; border-color: #38bdf8; box-shadow:
         <div style="display:flex;gap:8px;margin-top:8px;">
           <div style="flex:1;">
             <label style="font-size:0.72rem;">事前窓 K⁻</label>
-            <input type="number" id="cs-pre" value="5" min="1" max="15" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#e2e8f0;font-size:0.8rem;padding:4px 6px;box-sizing:border-box;">
+            <input type="number" id="cs-pre" value="10" min="1" max="60" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#e2e8f0;font-size:0.8rem;padding:4px 6px;box-sizing:border-box;">
           </div>
           <div style="flex:1;">
             <label style="font-size:0.72rem;">事後窓 K⁺</label>
-            <input type="number" id="cs-post" value="6" min="0" max="20" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#e2e8f0;font-size:0.8rem;padding:4px 6px;box-sizing:border-box;">
+            <input type="number" id="cs-post" value="6" min="0" max="60" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#e2e8f0;font-size:0.8rem;padding:4px 6px;box-sizing:border-box;">
           </div>
           <div style="flex:1;">
             <label style="font-size:0.72rem;">Boot回数</label>
             <input type="number" id="cs-boot" value="300" min="0" max="2000" step="50" style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:5px;color:#e2e8f0;font-size:0.8rem;padding:4px 6px;box-sizing:border-box;">
           </div>
         </div>
+        <label style="margin-top:6px;font-size:0.75rem;">
+          <input type="checkbox" id="cs-full" style="margin-right:6px;">データの全期間を表示（窓を自動で最大に）
+        </label>
         <div style="margin-top:8px;font-size:0.72rem;color:#64748b;line-height:1.6;">
           Callaway &amp; Sant'Anna (2021) staggered DiD。<br>
           未処理群を比較群にATT(g,t)を集計し、事前トレンドで平行トレンドを検証。<br>
@@ -2156,8 +2159,14 @@ async function runRegression() {
       if (!data[gVar]) throw new Error('個体変数を選択してください');
       if (!data[tVar]) throw new Error('時間変数を選択してください');
       if (!data[dVar]) throw new Error('処理ダミー（政策変数）を選択してください');
-      const preK  = Math.max(1, parseInt(document.getElementById('cs-pre').value)  || 5);
-      const postK = Math.max(0, parseInt(document.getElementById('cs-post').value) || 6);
+      let preK  = Math.max(1, parseInt(document.getElementById('cs-pre').value)  || 10);
+      let postK = Math.max(0, parseInt(document.getElementById('cs-post').value) || 6);
+      if (document.getElementById('cs-full').checked) {
+        // 観測期間の長さ（年数−1）まで窓を広げる。推定できないeは自動で除外される
+        const yrs = data[tVar].map(Number).filter(v => !isNaN(v));
+        const span = Math.max(...yrs) - Math.min(...yrs);
+        preK = Math.max(1, span); postK = Math.max(0, span);
+      }
       const B     = Math.max(0, parseInt(document.getElementById('cs-boot').value) || 0);
       // 個体・年・処理・Y を揃えて欠損行を除外
       const gA=[],tA=[],dA=[],yA=[];
@@ -2719,10 +2728,12 @@ function renderCSDID(res, yVar, treatVar){
       ${isLog?`<td style="color:#a78bfa">${pct(est)}</td>`:''}
     </tr>`;
   };
-  rowMain(`総合ATT（事後 e=0..${res.postK} 平均）`, res.overall, res.seOverall, res.pOverall, true);
-  rowMain(`事前トレンド（e=-${res.preK}..-2 平均）`, res.pre, res.sePre, res.pPre, false);
+  const validE = res.eventStudy.filter(d=>!isNaN(d.att)).map(d=>d.e);
+  const eMax = Math.max(0, ...validE.filter(e=>e>=0)), eMin = Math.min(-2, ...validE.filter(e=>e<=-2));
+  rowMain(`総合ATT（事後 e=0..${eMax} 平均）`, res.overall, res.seOverall, res.pOverall, true);
+  rowMain(`事前トレンド（e=${eMin}..-2 平均）`, res.pre, res.sePre, res.pPre, false);
   tbl.innerHTML += `<tr><td colspan="${isLog?6:5}" style="border:none;padding:9px 0 3px;color:#64748b;font-size:0.72rem;font-weight:700;">イベントスタディ（e=-1 を基準=0）</td></tr>`;
-  res.eventStudy.forEach(({e,att,se,p})=>{
+  res.eventStudy.filter(d=>!isNaN(d.att)).forEach(({e,att,se,p})=>{
     const z=(isNaN(se)||se===0)?NaN:att/se;
     const base = e===-1;
     tbl.innerHTML += `<tr>
@@ -2766,13 +2777,18 @@ function renderCSDID(res, yVar, treatVar){
   let card=document.getElementById('cs-ev-card');
   if(!card){
     card=document.createElement('div'); card.className='panel-card'; card.id='cs-ev-card';
-    card.innerHTML='<h3>イベントスタディ図（動学 ATT と 95%CI）</h3><canvas id="cs-ev" style="width:100%;display:block;"></canvas>';
+    card.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;">'
+      + '<h3 style="margin:0;">イベントスタディ図（動学 ATT と 95%CI）</h3>'
+      + '<button class="dl-btn" onclick="downloadEventStudy()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>PNG 保存</button>'
+      + '</div><canvas id="cs-ev" style="width:100%;display:block;"></canvas>';
     document.getElementById('summary-section').insertAdjacentElement('afterend', card);
   }
   document.getElementById('coef-placeholder').style.display='none';
   panel.style.display='';
-  setTimeout(()=>drawEventStudy('cs-ev', res), 60);
-  window.addEventListener('resize', ()=>{ if(document.getElementById('cs-ev')) drawEventStudy('cs-ev', res); }, {once:true});
+  window._csLast = {res, yVar};
+  setTimeout(()=>drawEventStudy('cs-ev', res, yVar), 60);
+  window._csRedraw = ()=>{ if(document.getElementById('cs-ev')) drawEventStudy('cs-ev', res, yVar); };
+  window.addEventListener('resize', window._csRedraw, {once:true});
 
   // 残差プロットタブは CS-DiD では使わない
   document.getElementById('plot-tabs-wrapper').classList.remove('visible');
@@ -2780,52 +2796,123 @@ function renderCSDID(res, yVar, treatVar){
   if(pph){ pph.style.display=''; const sp=pph.querySelector('span'); if(sp) sp.textContent='CS-DiD：イベントスタディ図は「係数・要約」タブに表示されます'; }
 }
 
-function drawEventStudy(id, res){
-  const canvas=document.getElementById(id);
-  const parent=canvas.parentElement;
-  const w=Math.max(parent.clientWidth-4, 360), h=380;
-  canvas.width=w; canvas.height=h; canvas.style.height=h+'px';
+function downloadEventStudy(){
+  if (!window._csLast) { alert('先に CS-DiD を実行してください'); return; }
+  const c = document.createElement('canvas');
+  drawEventStudy(c, window._csLast.res, window._csLast.yVar, {w:1200, h:600, scale:2});
+  const y = (document.querySelector('input[name="y-radio"]:checked')||{}).value || 'Y';
+  const d = document.getElementById('treat-var-cs')?.value || 'treat';
+  const a = document.createElement('a');
+  a.download = `イベントスタディ_${y}_${d}.png`.replace(/[\\/:*?"<>|]/g, '_');
+  a.href = c.toDataURL('image/png');
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+function drawEventStudy(id, res, yVar, fixed){
+  const canvas = typeof id === 'string' ? document.getElementById(id) : id;
+  const w = fixed ? fixed.w : Math.max(canvas.parentElement.clientWidth-4, 360);
+  const h = fixed ? fixed.h : 440;
+  // 高DPI対応（ぼやけ防止）
+  const dpr = fixed ? fixed.scale : (window.devicePixelRatio||1);
+  canvas.width=w*dpr; canvas.height=h*dpr;
+  canvas.style.width=w+'px'; canvas.style.height=h+'px';
   const ctx=canvas.getContext('2d');
-  const ev=res.eventStudy;
-  const L=58,R=18,T=16,Bm=42, pw=w-L-R, ph=h-T-Bm;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+
+  const isLog = yVar && /log/i.test(yVar);
+  const ev=res.eventStudy.filter(d=>!isNaN(d.att));
+  if(!ev.length){ ctx.fillStyle='#64748b'; ctx.font='14px "Segoe UI",sans-serif'; ctx.fillText('表示できる推定値がありません',20,40); return; }
+  const L=70, R=isLog?64:24, T=44, Bm=56, pw=w-L-R, ph=h-T-Bm;
   const es=ev.map(d=>d.e);
-  const xlo=Math.min(...es)-0.5, xhi=Math.max(...es)+0.5;
-  const lows=ev.map(d=>isNaN(d.att)?0:d.att-1.96*(d.se||0));
-  const highs=ev.map(d=>isNaN(d.att)?0:d.att+1.96*(d.se||0));
-  let [ylo,yhi]=niceRange([...lows,...highs,0]);
-  const xTicks=es.slice(), yTicks=niceTicks(ylo,yhi);
-  drawFrame(ctx,w,h,L,R,T,Bm,'イベント時間 e（導入年=0）','ATT（Yの単位）',xTicks,xlo,xhi,yTicks,ylo,yhi);
+  const xlo=Math.min(...es)-0.6, xhi=Math.max(...es)+0.6;
+  const lows=ev.map(d=>d.att-1.96*(d.se||0)), highs=ev.map(d=>d.att+1.96*(d.se||0));
+  const [ylo,yhi]=niceRange([...lows,...highs,0]);
+  const yTicks=niceTicks(ylo,yhi);
   const X=e=>L+(e-xlo)/(xhi-xlo)*pw;
   const Yp=v=>T+ph-(v-ylo)/(yhi-ylo)*ph;
-  // 0 水平線
-  ctx.save(); ctx.strokeStyle='#cbd5e1'; ctx.lineWidth=1.4; ctx.setLineDash([5,4]);
-  ctx.beginPath(); ctx.moveTo(L,Yp(0)); ctx.lineTo(L+pw,Yp(0)); ctx.stroke(); ctx.restore();
-  // 導入時点 縦線 (e=-0.5)
-  ctx.save(); ctx.strokeStyle='#f59e0b'; ctx.lineWidth=1.4; ctx.setLineDash([4,4]);
-  ctx.beginPath(); ctx.moveTo(X(-0.5),T); ctx.lineTo(X(-0.5),T+ph); ctx.stroke(); ctx.restore();
-  // 点推定を結ぶ線
-  ctx.save(); ctx.strokeStyle='rgba(59,130,246,0.45)'; ctx.lineWidth=1.6; ctx.beginPath();
-  let started=false;
-  ev.forEach(d=>{ if(isNaN(d.att))return; const px=X(d.e),py=Yp(d.att); if(!started){ctx.moveTo(px,py);started=true;}else ctx.lineTo(px,py); });
-  ctx.stroke(); ctx.restore();
-  // CI と点
-  ev.forEach(d=>{
-    if(isNaN(d.att)) return;
-    const px=X(d.e), base=d.e===-1;
-    const se=d.se||0, lo=Yp(d.att-1.96*se), hi=Yp(d.att+1.96*se);
-    if(!base && se>0){
-      ctx.save(); ctx.strokeStyle='#1d4ed8'; ctx.lineWidth=1.6;
-      ctx.beginPath(); ctx.moveTo(px,lo); ctx.lineTo(px,hi); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(px-4,lo); ctx.lineTo(px+4,lo);
-      ctx.moveTo(px-4,hi); ctx.lineTo(px+4,hi); ctx.stroke(); ctx.restore();
-    }
-    const py=Yp(d.att);
-    ctx.save();
-    ctx.beginPath(); ctx.arc(px,py,base?5:4.5,0,2*Math.PI);
-    ctx.fillStyle = base?'#ffffff':(d.e>=0?'#2563eb':'#64748b');
-    ctx.strokeStyle = base?'#64748b':'#1d4ed8'; ctx.lineWidth=1.8;
-    ctx.fill(); ctx.stroke(); ctx.restore();
+  const C={bg:'#ffffff', pre:'#f1f5f9', post:'#eff6ff', grid:'#e2e8f0', axis:'#334155', sub:'#64748b',
+           preCol:'#64748b', postCol:'#2563eb', band:'rgba(37,99,235,0.13)', bandPre:'rgba(100,116,139,0.13)', adopt:'#d97706'};
+
+  // 背景（導入前=灰、導入後=青）
+  ctx.fillStyle=C.bg; ctx.fillRect(0,0,w,h);
+  const xCut=X(-0.5);
+  ctx.fillStyle=C.pre;  ctx.fillRect(L,T,Math.max(0,xCut-L),ph);
+  ctx.fillStyle=C.post; ctx.fillRect(xCut,T,Math.max(0,L+pw-xCut),ph);
+
+  // 横グリッド＋Y目盛
+  ctx.font='12px "Segoe UI",sans-serif'; ctx.textBaseline='middle';
+  yTicks.forEach(v=>{
+    const y=Yp(v);
+    ctx.strokeStyle=C.grid; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(L,y); ctx.lineTo(L+pw,y); ctx.stroke();
+    ctx.fillStyle=C.sub; ctx.textAlign='right'; ctx.fillText(+v.toFixed(4),L-8,y);
+    if(isLog){ ctx.textAlign='left'; ctx.fillText(((Math.exp(v)-1)*100).toFixed(0)+'%',L+pw+8,y); }
   });
+
+  // X目盛（多いときは間引く。0と-1は必ず表示）
+  const span=es.length, stepX = span>30?5 : span>16?2 : 1;
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  es.forEach(e=>{
+    if(e%stepX!==0 && e!==-1 && e!==0) return;
+    ctx.fillStyle = e===0?C.adopt : C.sub;
+    ctx.font = (e===0?'bold ':'')+'12px "Segoe UI",sans-serif';
+    ctx.fillText(e>0?'+'+e:String(e), X(e), T+ph+8);
+  });
+
+  // 軸ラベル
+  ctx.fillStyle=C.axis; ctx.font='13px "Segoe UI",sans-serif'; ctx.textAlign='center';
+  ctx.fillText('導入からの年数 e（0 = 導入年）', L+pw/2, h-22);
+  ctx.save(); ctx.translate(18,T+ph/2); ctx.rotate(-Math.PI/2);
+  ctx.fillText(isLog?'ATT（対数ポイント）':'ATT（Yの単位）',0,0); ctx.restore();
+  if(isLog){ ctx.save(); ctx.translate(w-12,T+ph/2); ctx.rotate(Math.PI/2); ctx.fillStyle=C.sub; ctx.fillText('%効果',0,0); ctx.restore(); }
+
+  // 0線・導入線
+  ctx.strokeStyle='#94a3b8'; ctx.lineWidth=1.4; ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(L,Yp(0)); ctx.lineTo(L+pw,Yp(0)); ctx.stroke();
+  ctx.strokeStyle=C.adopt; ctx.lineWidth=1.6; ctx.setLineDash([6,4]);
+  ctx.beginPath(); ctx.moveTo(xCut,T); ctx.lineTo(xCut,T+ph); ctx.stroke(); ctx.setLineDash([]);
+
+  // 領域ラベル
+  ctx.font='bold 12px "Segoe UI",sans-serif'; ctx.textBaseline='top';
+  ctx.fillStyle=C.preCol;  ctx.textAlign='left';  if(xCut-L>60) ctx.fillText('導入前（≒0なら平行トレンドOK）',L+8,T+6);
+  ctx.fillStyle=C.postCol; ctx.textAlign='right'; if(L+pw-xCut>60) ctx.fillText('導入後（政策効果）',L+pw-8,T+6);
+
+  // 95%CI 帯（導入前・後で別色）
+  const drawBand=(arr,col)=>{
+    const a=arr.filter(d=>d.se>0); if(a.length<2) return;
+    ctx.fillStyle=col; ctx.beginPath();
+    a.forEach((d,i)=>{ const x=X(d.e), y=Yp(d.att+1.96*d.se); i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+    [...a].reverse().forEach(d=>ctx.lineTo(X(d.e),Yp(d.att-1.96*d.se)));
+    ctx.closePath(); ctx.fill();
+  };
+  const preArr=ev.filter(d=>d.e<=-1), postArr=ev.filter(d=>d.e>=-1);
+  drawBand(preArr,C.bandPre); drawBand(postArr,C.band);
+
+  // 点推定を結ぶ線
+  ctx.lineWidth=2;
+  [[preArr,C.preCol],[postArr,C.postCol]].forEach(([arr,col])=>{
+    ctx.strokeStyle=col; ctx.beginPath(); arr.forEach((d,i)=>{ i?ctx.lineTo(X(d.e),Yp(d.att)):ctx.moveTo(X(d.e),Yp(d.att)); }); ctx.stroke();
+  });
+
+  // 点（5%有意=塗り、非有意=白抜き、基準年=灰色の白抜き）
+  ev.forEach(d=>{
+    const base=d.e===-1, col=d.e>=0?C.postCol:C.preCol;
+    const sig=!base && d.p<0.05;
+    ctx.beginPath(); ctx.arc(X(d.e),Yp(d.att),base?5:5.5,0,2*Math.PI);
+    ctx.fillStyle = sig?col:'#ffffff'; ctx.strokeStyle = base?'#94a3b8':col; ctx.lineWidth=2;
+    ctx.fill(); ctx.stroke();
+  });
+
+  // 枠
+  ctx.strokeStyle='#cbd5e1'; ctx.lineWidth=1; ctx.strokeRect(L,T,pw,ph);
+
+  // 凡例
+  ctx.font='12px "Segoe UI",sans-serif'; ctx.textBaseline='middle'; ctx.textAlign='left';
+  let lx=L; const ly=18;
+  const item=(draw,label)=>{ draw(lx+7,ly); ctx.fillStyle=C.axis; ctx.fillText(label,lx+18,ly); lx+=ctx.measureText(label).width+34; };
+  item((x,y)=>{ctx.beginPath();ctx.arc(x,y,5,0,7);ctx.fillStyle=C.postCol;ctx.fill();},'5%有意');
+  item((x,y)=>{ctx.beginPath();ctx.arc(x,y,5,0,7);ctx.fillStyle='#fff';ctx.fill();ctx.strokeStyle=C.postCol;ctx.lineWidth=2;ctx.stroke();},'非有意');
+  item((x,y)=>{ctx.fillStyle=C.band;ctx.fillRect(x-7,y-6,14,12);},'95%信頼区間');
+  item((x,y)=>{ctx.strokeStyle=C.adopt;ctx.lineWidth=1.6;ctx.setLineDash([4,3]);ctx.beginPath();ctx.moveTo(x,y-7);ctx.lineTo(x,y+7);ctx.stroke();ctx.setLineDash([]);},'政策導入');
 }
 
 // ── PLOT HELPERS ──────────────────────────────────────────────────────────
